@@ -31,8 +31,6 @@ import {
   Delete,
   Download, 
   Visibility, 
-  CheckCircle,
-  Error as ErrorIcon,
   Edit,
   Close
 } from '@mui/icons-material';
@@ -96,13 +94,10 @@ function InvoiceProcessorPage() {
   };
 
   const handleBeginProcess = async () => {
-    console.log('handleBeginProcess called, selectedFiles:', selectedFiles);
     if (selectedFiles.length === 0) {
-      console.log('No files selected');
       return;
     }
     
-    console.log('Starting processing...');
     setProcessing(true);
     setProcessingComplete(false);
     setProcessedResults([]);
@@ -114,16 +109,12 @@ function InvoiceProcessorPage() {
       
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        console.log(`Processing file ${i + 1}/${selectedFiles.length}:`, file.name);
         setProcessingProgress({ current: i + 1, total: selectedFiles.length, fileName: file.name });
         
         try {
-          console.log('Calling parseExcelData for:', file.name);
           const invoices = await parseExcelData(file);
-          console.log('parseExcelData returned:', invoices);
           allResults.push(...invoices);
         } catch (error) {
-          console.error('Error processing file:', file.name, error);
           setErrors(prev => [...prev, error.message]);
           allResults.push({
             fileName: file.name,
@@ -133,17 +124,14 @@ function InvoiceProcessorPage() {
         }
       }
       
-      console.log('All results:', allResults);
       setProcessedResults(allResults);
       setProcessingComplete(true);
       
     } catch (error) {
-      console.error('Processing failed:', error);
       setErrors(prev => [...prev, 'Processing failed: ' + error.message]);
     } finally {
       setProcessing(false);
       setProcessingProgress({ current: 0, total: 0, fileName: '' });
-      console.log('Processing completed');
     }
   };
 
@@ -153,48 +141,37 @@ function InvoiceProcessorPage() {
       
       reader.onload = (e) => {
         try {
-          console.log('Reading Excel file...');
           const data = new Uint8Array(e.target.result);
           
-          // Enhanced workbook reading options for .xlsm files
           const workbook = XLSX.read(data, { 
             type: 'array',
             cellDates: true,
             cellNF: false,
             cellText: false,
             raw: false,
-            codepage: 65001 // UTF-8
+            codepage: 65001
           });
           
-          console.log('Workbook created, sheet names:', workbook.SheetNames);
-          
-          // Try to find the correct worksheet
           let worksheet;
           let sheetName;
           
-          // First try to find a sheet with data
           for (const name of workbook.SheetNames) {
             const testSheet = workbook.Sheets[name];
             const testData = XLSX.utils.sheet_to_json(testSheet, { header: 1, raw: false });
             
-            // Check if this sheet has meaningful data (non-empty rows with multiple columns)
             const nonEmptyRows = testData.filter(row => row && row.length > 5);
             if (nonEmptyRows.length > 1) {
               worksheet = testSheet;
               sheetName = name;
-              console.log('Using worksheet:', sheetName);
               break;
             }
           }
           
-          // Fallback to first sheet if no suitable sheet found
           if (!worksheet) {
             sheetName = workbook.SheetNames[0];
             worksheet = workbook.Sheets[sheetName];
-            console.log('Fallback to first worksheet:', sheetName);
           }
           
-          // Convert to JSON with better options
           const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
             header: 1, 
             raw: false,
@@ -202,15 +179,9 @@ function InvoiceProcessorPage() {
             blankrows: false
           });
           
-          console.log('JSON data length:', jsonData.length);
-          console.log('Raw Excel data:', jsonData.slice(0, 3)); // Log first 3 rows for debugging
-          
-          // Filter out completely empty rows
           const filteredData = jsonData.filter(row => {
             return row && row.some(cell => cell !== null && cell !== undefined && cell.toString().trim() !== '');
           });
-          
-          console.log('Filtered data length:', filteredData.length);
           
           if (!filteredData || filteredData.length < 2) {
             throw new Error('Excel file must contain at least a header row and one data row');
@@ -219,26 +190,20 @@ function InvoiceProcessorPage() {
           const headers = filteredData[0];
           const rows = filteredData.slice(1);
           
-          console.log('Headers found:', headers);
-          console.log('Headers length:', headers.length);
-          console.log('Processing', rows.length, 'data rows');
-          
-          // Validate headers
           if (!headers || headers.length === 0) {
             throw new Error('No headers found in the Excel file. Please ensure the first row contains column headers.');
           }
           
-          // Enhanced column mapping with more flexible matching
+          // Fix the columnMap object around line 206:
           const columnMap = {
-            type: headers.findIndex(h => h && h.toString().toLowerCase().includes('type')),
-            date: headers.findIndex(h => h && h.toString().toLowerCase().includes('date') && !h.toString().toLowerCase().includes('due')),
+            type: headers.findIndex(h => h && (h.toString().toLowerCase().includes('type') || h.toString().toLowerCase().includes('invoice') || h.toString().toLowerCase().includes('estimate'))),
             num: headers.findIndex(h => h && (h.toString().toLowerCase().includes('num') || h.toString().toLowerCase().includes('number') || h.toString().toLowerCase().includes('#'))),
             poNumber: headers.findIndex(h => h && (h.toString().toLowerCase().includes('p.o.') || h.toString().toLowerCase().includes('po') || h.toString().toLowerCase().includes('p. o.') || h.toString().toLowerCase().includes('po #'))),
             name: headers.findIndex(h => h && h.toString().toLowerCase().includes('name') && !h.toString().toLowerCase().includes('file')),
             dueDate: headers.findIndex(h => h && h.toString().toLowerCase().includes('due')),
             item: headers.findIndex(h => h && h.toString().toLowerCase().includes('item')),
             qty: headers.findIndex(h => h && (h.toString().toLowerCase().includes('qty') || h.toString().toLowerCase().includes('quantity'))),
-            size: headers.findIndex(h => h && (h.toString().toLowerCase().includes('size') || h.toString().toLowerCase().includes('w') && h.toString().toLowerCase().includes('h') || h.toString().toLowerCase().includes("w' x h'") || h.toString().toLowerCase().includes('w\'\'') || h.toString().includes('W\'\''))),
+            size: headers.findIndex(h => h && (h.toString().toLowerCase().includes('size') || (h.toString().toLowerCase().includes('w') && h.toString().toLowerCase().includes('h')) || h.toString().toLowerCase().includes("w' x h'") || h.toString().toLowerCase().includes("w'''") || h.toString().includes("W'''"))),
             glassOption: headers.findIndex(h => h && h.toString().toLowerCase().includes('glass')),
             gridStyle: headers.findIndex(h => h && (h.toString().toLowerCase().includes('grid') || h.toString().toLowerCase().includes('gride'))),
             frame: headers.findIndex(h => h && h.toString().toLowerCase().includes('frame')),
@@ -249,44 +214,32 @@ function InvoiceProcessorPage() {
             shipZip: headers.findIndex(h => h && h.toString().toLowerCase().includes('ship') && h.toString().toLowerCase().includes('zip'))
           };
           
-          console.log('Column mapping:', columnMap);
-          
-          // Check if we found any essential columns
           const essentialColumns = ['type', 'num', 'name'];
           const foundEssential = essentialColumns.some(col => columnMap[col] >= 0);
           
           if (!foundEssential) {
-            console.warn('Warning: No essential columns found. Available headers:', headers);
-            console.warn('Looking for columns containing: type, num/number, name/customer');
+            throw new Error('Could not find essential columns (type, number, name) in the Excel file');
           }
           
-          // Group rows by invoice number to handle multiple items per invoice
           const invoiceGroups = {};
           
           rows.forEach((row, rowIndex) => {
             if (!row || row.length === 0) return;
             
-            // Log the full row, not just first 10 columns
-            console.log(`Processing row ${rowIndex + 2}:`, row);
-            
-            // Only process rows where Type column is 'Invoice'
             const rowType = columnMap.type >= 0 ? row[columnMap.type] : '';
             if (columnMap.type >= 0 && (!rowType || rowType.toString().toLowerCase() !== 'invoice')) {
-              console.log(`Skipping row ${rowIndex + 2} - Type: '${rowType}' (not 'invoice')`);
-              return; // Skip non-invoice rows
+              return;
             }
             
             const invoiceNum = columnMap.num >= 0 ? row[columnMap.num] : `Row_${rowIndex + 2}`;
             
             if (!invoiceGroups[invoiceNum]) {
-              // Build ship to address components
               const shipToAddress1 = columnMap.shipToAddress1 >= 0 ? (row[columnMap.shipToAddress1] || '').toString().trim() : '';
               const shipToAddress2 = columnMap.shipToAddress2 >= 0 ? (row[columnMap.shipToAddress2] || '').toString().trim() : '';
               const shipToCity = columnMap.shipToCity >= 0 ? (row[columnMap.shipToCity] || '').toString().trim() : '';
               const shipToState = columnMap.shipToState >= 0 ? (row[columnMap.shipToState] || '').toString().trim() : '';
               const shipZip = columnMap.shipZip >= 0 ? (row[columnMap.shipZip] || '').toString().trim() : '';
               
-              // Build combined address
               const shipToAddress = [shipToAddress1, shipToAddress2, shipToCity, shipToState, shipZip]
                 .filter(part => part && part.trim())
                 .join(' ');
@@ -317,17 +270,8 @@ function InvoiceProcessorPage() {
                 extractionConfidence: 'high',
                 status: 'success'
               };
-              
-              console.log(`Created invoice group for: ${invoiceNum}`, {
-                type: invoiceGroups[invoiceNum].type,
-                orderDate: invoiceGroups[invoiceNum].orderDate,
-                poNumber: invoiceGroups[invoiceNum].poNumber,
-                customerName: invoiceGroups[invoiceNum].customerInfo.name,
-                shipToCity: invoiceGroups[invoiceNum].shipTo.city
-              });
             }
             
-            // Add item to the invoice
             const item = {
               name: columnMap.item >= 0 ? (row[columnMap.item] || '').toString() : '',
               quantity: columnMap.qty >= 0 ? (row[columnMap.qty] || '').toString() : '',
@@ -337,40 +281,23 @@ function InvoiceProcessorPage() {
               frame: columnMap.frame >= 0 ? (row[columnMap.frame] || '').toString() : ''
             };
             
-            console.log(`Item data for row ${rowIndex + 2}:`, {
-              name: item.name,
-              quantity: item.quantity,
-              size: item.size,
-              glassOption: item.glassOption,
-              gridStyle: item.gridStyle,
-              frame: item.frame
-            });
-            
             if (item.name || item.quantity) {
               invoiceGroups[invoiceNum].items.push(item);
-              console.log(`Added item to invoice ${invoiceNum}:`, item);
-            } else {
-              console.log(`No item data found for row ${rowIndex + 2}`);
             }
           });
           
           const processedInvoices = Object.values(invoiceGroups);
-          console.log('Final processed invoices:', processedInvoices.length);
-          console.log('Sample invoice structure:', processedInvoices[0]);
           resolve(processedInvoices);
           
         } catch (error) {
-          console.error('Error in parseExcelData:', error);
           reject(new Error(`Failed to parse Excel file: ${error.message}`));
         }
       };
       
       reader.onerror = () => {
-        console.error('FileReader error');
         reject(new Error('Failed to read Excel file'));
       };
       
-      console.log('Starting to read file as ArrayBuffer');
       reader.readAsArrayBuffer(file);
     });
   };
