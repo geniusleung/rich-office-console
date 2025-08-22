@@ -60,7 +60,7 @@ function HomePage() {
             lineHeight: 1.6
           }}
         >
-          Your professional web portal for office management and services.
+          Developed by Elvis Leung for Rich Windows and Doors Office use only.
         </Typography>
       </Box>
       

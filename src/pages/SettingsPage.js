@@ -29,7 +29,7 @@ function SettingsPage() {
 
       <Grid container spacing={3}>
         {/* Item List Card - Clickable */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card 
             onClick={handleItemListClick}
             sx={{ 
@@ -55,7 +55,7 @@ function SettingsPage() {
         </Grid>
         
         {/* Future Settings Cards can be added here */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2 }}>
