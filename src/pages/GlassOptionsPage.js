@@ -18,7 +18,6 @@ import {
   Alert,
   CircularProgress,
   Fab,
-  FormControl,
   FormControlLabel,
   Switch,
   Paper

@@ -24,7 +24,8 @@ import {
   MenuItem,
   Chip,
   Avatar,
-  Paper,
+  Card,
+  CardContent,
   FormControlLabel,
   Switch
 } from '@mui/material';
@@ -309,27 +310,29 @@ function ItemListPage() {
             <CircularProgress size={60} />
           </Box>
         ) : items.length === 0 ? (
-          <Paper sx={{ textAlign: 'center', py: 8, borderRadius: 3, boxShadow: 3 }}>
-            <Avatar sx={{ bgcolor: 'grey.100', width: 80, height: 80, mx: 'auto', mb: 3 }}>
-              <ListIcon sx={{ fontSize: 40, color: 'grey.400' }} />
-            </Avatar>
-            <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>
-              No Items Yet
-            </Typography>
-            <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-              Start building your inventory by adding your first item
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<Add />}
-              onClick={handleAddItem}
-              sx={{ borderRadius: 3 }}
-            >
-              Add Your First Item
-            </Button>
-          </Paper>
+          <Card sx={{ borderRadius: 3, boxShadow: 3 }}>
+            <CardContent sx={{ textAlign: 'center', py: 8 }}>
+              <Avatar sx={{ bgcolor: 'grey.100', width: 80, height: 80, mx: 'auto', mb: 3 }}>
+                <ListIcon sx={{ fontSize: 40, color: 'grey.400' }} />
+              </Avatar>
+              <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>
+                No Items Yet
+              </Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                Start building your inventory by adding your first item
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={handleAddItem}
+                sx={{ borderRadius: 3 }}
+              >
+                Add Your First Item
+              </Button>
+            </CardContent>
+          </Card>
         ) : (
-          <TableContainer component={Paper} sx={{ borderRadius: 3, boxShadow: 3 }}>
+          <TableContainer component={Card} sx={{ borderRadius: 3, boxShadow: 3 }}>
             <Table sx={{ minWidth: 650 }}>
               <TableHead>
                 <TableRow sx={{ backgroundColor: '#f8f9fa' }}>

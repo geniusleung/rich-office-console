@@ -1,6 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Box, Paper, useTheme } from '@mui/material';
-import { AccessTime, CalendarToday } from '@mui/icons-material';
+import { 
+  Typography, 
+  Box, 
+  Grid, 
+  Card, 
+  CardContent, 
+  useTheme,
+  Chip,
+  Avatar,
+  Divider
+} from '@mui/material';
+import { 
+  AccessTime, 
+  CalendarToday, 
+  TrendingUp, 
+  Assignment, 
+  Receipt,
+  LocalShipping,
+  Dashboard,
+  CheckCircle
+} from '@mui/icons-material';
 
 function HomePage() {
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
@@ -32,87 +51,286 @@ function HomePage() {
     });
   };
 
+  const quickStats = [
+    {
+      title: 'Total Invoices',
+      value: '--',
+      change: '--',
+      icon: <Receipt />,
+      color: theme.palette.primary.main,
+      bgColor: 'rgba(30, 64, 175, 0.1)'
+    },
+    {
+      title: 'Processed Today',
+      value: '--',
+      change: '--',
+      icon: <Assignment />,
+      color: theme.palette.success.main,
+      bgColor: 'rgba(5, 150, 105, 0.1)'
+    },
+    {
+      title: 'Pending Deliveries',
+      value: '--',
+      change: '--',
+      icon: <LocalShipping />,
+      color: theme.palette.warning.main,
+      bgColor: 'rgba(217, 119, 6, 0.1)'
+    },
+    {
+      title: 'System Status',
+      value: '--',
+      change: '--',
+      icon: <CheckCircle />,
+      color: theme.palette.success.main,
+      bgColor: 'rgba(5, 150, 105, 0.1)'
+    }
+  ];
+
   return (
-    <Box>
-      <Box sx={{ textAlign: 'center', mb: 4 }}>
+    <Box sx={{ maxWidth: '1200px', mx: 'auto' }}>
+      {/* Header Section */}
+      <Box sx={{ mb: 4 }}>
         <Typography 
           variant="h3" 
           component="h1" 
-          gutterBottom
           sx={{
-            background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
-            backgroundClip: 'text',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            fontWeight: 700,
-            mb: 2
+            fontWeight: 800,
+            color: theme.palette.text.primary,
+            mb: 1,
+            fontSize: { xs: '1.75rem', sm: '2.25rem', md: '2.5rem' }
           }}
         >
           Welcome to Rich Office Console
         </Typography>
         <Typography 
-          variant="h6" 
+          variant="body1" 
           color="text.secondary" 
           sx={{ 
-            maxWidth: '600px', 
-            mx: 'auto',
-            fontSize: '1.125rem',
-            lineHeight: 1.6
+            fontSize: '1rem',
+            lineHeight: 1.6,
+            mb: 2
           }}
         >
           Developed by Elvis Leung for Rich Windows and Doors Office use only.
         </Typography>
+        <Chip 
+          icon={<Dashboard />}
+          label="Dashboard Overview"
+          variant="outlined"
+          sx={{ 
+            borderColor: theme.palette.primary.main,
+            color: theme.palette.primary.main
+          }}
+        />
       </Box>
-      
-      <Paper 
+
+      {/* Date and Time Card */}
+      <Card 
         sx={{ 
-          mt: 4, 
-          p: 4, 
-          textAlign: 'center',
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-          border: `1px solid ${theme.palette.divider}`,
+          mb: 4,
+          background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 100%)`,
+          color: 'white',
           position: 'relative',
-          overflow: 'hidden',
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            height: '4px',
-            background: 'linear-gradient(90deg, #2563eb 0%, #7c3aed 100%)',
-          }
+          overflow: 'hidden'
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
-          <CalendarToday sx={{ mr: 1, color: theme.palette.primary.main }} />
+        <CardContent sx={{ p: 4, position: 'relative', zIndex: 1 }}>
+          <Grid container spacing={3} alignItems="center">
+            <Grid item xs={12} md={6}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <Avatar 
+                  sx={{ 
+                    bgcolor: 'rgba(255, 255, 255, 0.2)', 
+                    mr: 2,
+                    width: 48,
+                    height: 48
+                  }}
+                >
+                  <CalendarToday />
+                </Avatar>
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    Today's Date
+                  </Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                    {formatDate(currentDateTime)}
+                  </Typography>
+                </Box>
+              </Box>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: { xs: 'flex-start', md: 'flex-end' } }}>
+                <Avatar 
+                  sx={{ 
+                    bgcolor: 'rgba(255, 255, 255, 0.2)', 
+                    mr: 2,
+                    width: 48,
+                    height: 48
+                  }}
+                >
+                  <AccessTime />
+                </Avatar>
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    Current Time
+                  </Typography>
+                  <Typography 
+                    variant="h4" 
+                    sx={{ 
+                      fontWeight: 700,
+                      fontFamily: 'monospace',
+                      letterSpacing: '0.05em'
+                    }}
+                  >
+                    {formatTime(currentDateTime)}
+                  </Typography>
+                </Box>
+              </Box>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* Quick Stats Grid */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {quickStats.map((stat, index) => (
+          <Grid item xs={12} sm={6} md={3} key={index}>
+            <Card 
+              sx={{ 
+                height: '100%',
+                transition: 'all 0.3s ease-in-out',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: theme.shadows[8]
+                }
+              }}
+            >
+              <CardContent sx={{ p: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+                  <Avatar 
+                    sx={{ 
+                      bgcolor: stat.bgColor,
+                      color: stat.color,
+                      width: 48,
+                      height: 48
+                    }}
+                  >
+                    {stat.icon}
+                  </Avatar>
+                  <Chip 
+                    label={stat.change}
+                    size="small"
+                    sx={{
+                      bgcolor: stat.change.startsWith('+') ? 'rgba(5, 150, 105, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                      color: stat.change.startsWith('+') ? theme.palette.success.main : theme.palette.error.main,
+                      fontWeight: 600
+                    }}
+                  />
+                </Box>
+                <Typography 
+                  variant="h4" 
+                  sx={{ 
+                    fontWeight: 700,
+                    color: theme.palette.text.primary,
+                    mb: 1
+                  }}
+                >
+                  {stat.value}
+                </Typography>
+                <Typography 
+                  variant="body2" 
+                  color="text.secondary"
+                  sx={{ fontWeight: 500 }}
+                >
+                  {stat.title}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+
+      {/* Quick Actions */}
+      <Card>
+        <CardContent sx={{ p: 3 }}>
           <Typography 
-            variant="h4" 
-            sx={{
-              color: theme.palette.text.primary,
+            variant="h6" 
+            sx={{ 
               fontWeight: 600,
-              fontSize: '1.5rem'
+              mb: 2,
+              color: theme.palette.text.primary
             }}
           >
-            {formatDate(currentDateTime)}
+            Quick Actions
           </Typography>
-        </Box>
-        
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <AccessTime sx={{ mr: 1, color: theme.palette.secondary.main }} />
-          <Typography 
-            variant="h2" 
-            sx={{
-              color: theme.palette.text.primary,
-              fontWeight: 700,
-              fontSize: '2.5rem',
-              fontFamily: 'monospace'
-            }}
-          >
-            {formatTime(currentDateTime)}
-          </Typography>
-        </Box>
-      </Paper>
+          <Divider sx={{ mb: 3 }} />
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6} md={4}>
+              <Box 
+                sx={{ 
+                  p: 2,
+                  borderRadius: 2,
+                  border: '1px solid #e5e7eb',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    borderColor: theme.palette.primary.main,
+                    backgroundColor: 'rgba(30, 64, 175, 0.02)'
+                  }
+                }}
+              >
+                <Receipt sx={{ fontSize: 32, color: theme.palette.primary.main, mb: 1 }} />
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  Process Invoice
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <Box 
+                sx={{ 
+                  p: 2,
+                  borderRadius: 2,
+                  border: '1px solid #e5e7eb',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    borderColor: theme.palette.secondary.main,
+                    backgroundColor: 'rgba(5, 150, 105, 0.02)'
+                  }
+                }}
+              >
+                <CalendarToday sx={{ fontSize: 32, color: theme.palette.secondary.main, mb: 1 }} />
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  View Calendar
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <Box 
+                sx={{ 
+                  p: 2,
+                  borderRadius: 2,
+                  border: '1px solid #e5e7eb',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    borderColor: theme.palette.warning.main,
+                    backgroundColor: 'rgba(217, 119, 6, 0.02)'
+                  }
+                }}
+              >
+                <TrendingUp sx={{ fontSize: 32, color: theme.palette.warning.main, mb: 1 }} />
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  View Reports
+                </Typography>
+              </Box>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
     </Box>
   );
 }

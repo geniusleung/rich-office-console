@@ -10,35 +10,224 @@ import ItemListPage from './pages/ItemListPage';
 import ItemColorPage from './pages/ItemColorPage';
 import FrameStylePage from './pages/FrameStylePage';
 import GlassOptionsPage from './pages/GlassOptionsPage';
+import DeliveryMethodsPage from './pages/DeliveryMethodsPage';
+import ProductionCalendarPage from './pages/ProductionCalendarPage';
+import DeliveryCalendarPage from './pages/DeliveryCalendarPage';
 
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#2563eb',
-      dark: '#1d4ed8',
+      main: '#1e40af', // Deep blue
+      dark: '#1e3a8a',
       light: '#3b82f6',
+      contrastText: '#ffffff',
     },
     secondary: {
-      main: '#7c3aed',
-      dark: '#6d28d9',
-      light: '#8b5cf6',
+      main: '#059669', // Emerald green
+      dark: '#047857',
+      light: '#10b981',
+      contrastText: '#ffffff',
     },
     background: {
-      default: '#f8fafc',
+      default: '#f8fafc', // Light gray
       paper: '#ffffff',
+    },
+    text: {
+      primary: '#1f2937', // Dark gray
+      secondary: '#6b7280', // Medium gray
+    },
+    grey: {
+      50: '#f9fafb',
+      100: '#f3f4f6',
+      200: '#e5e7eb',
+      300: '#d1d5db',
+      400: '#9ca3af',
+      500: '#6b7280',
+      600: '#4b5563',
+      700: '#374151',
+      800: '#1f2937',
+      900: '#111827',
+    },
+    success: {
+      main: '#059669',
+      light: '#10b981',
+      dark: '#047857',
+    },
+    warning: {
+      main: '#d97706',
+      light: '#f59e0b',
+      dark: '#b45309',
+    },
+    error: {
+      main: '#dc2626',
+      light: '#ef4444',
+      dark: '#b91c1c',
+    },
+    info: {
+      main: '#0ea5e9',
+      light: '#38bdf8',
+      dark: '#0284c7',
     },
   },
   typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: '"Inter", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", sans-serif',
+    h1: {
+      fontWeight: 800,
+      fontSize: '2.5rem',
+      lineHeight: 1.2,
+      letterSpacing: '-0.025em',
+    },
+    h2: {
+      fontWeight: 700,
+      fontSize: '2rem',
+      lineHeight: 1.3,
+      letterSpacing: '-0.025em',
+    },
     h3: {
       fontWeight: 700,
+      fontSize: '1.5rem',
+      lineHeight: 1.4,
+      letterSpacing: '-0.025em',
+    },
+    h4: {
+      fontWeight: 600,
+      fontSize: '1.25rem',
+      lineHeight: 1.4,
+    },
+    h5: {
+      fontWeight: 600,
+      fontSize: '1.125rem',
+      lineHeight: 1.5,
     },
     h6: {
       fontWeight: 600,
+      fontSize: '1rem',
+      lineHeight: 1.5,
+    },
+    body1: {
+      fontSize: '1rem',
+      lineHeight: 1.6,
+      color: '#374151',
+    },
+    body2: {
+      fontSize: '0.875rem',
+      lineHeight: 1.6,
+      color: '#6b7280',
+    },
+    button: {
+      fontWeight: 600,
+      textTransform: 'none',
+      letterSpacing: '0.025em',
     },
   },
   shape: {
-    borderRadius: 12,
+    borderRadius: 8,
+  },
+  spacing: 8,
+  components: {
+    MuiCssBaseline: {
+      styleOverrides: {
+        body: {
+          scrollbarWidth: 'thin',
+          scrollbarColor: '#d1d5db #f3f4f6',
+          '&::-webkit-scrollbar': {
+            width: '8px',
+          },
+          '&::-webkit-scrollbar-track': {
+            background: '#f3f4f6',
+          },
+          '&::-webkit-scrollbar-thumb': {
+            backgroundColor: '#d1d5db',
+            borderRadius: '4px',
+            '&:hover': {
+              backgroundColor: '#9ca3af',
+            },
+          },
+        },
+      },
+    },
+    MuiAppBar: {
+      styleOverrides: {
+        root: {
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+          borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
+        },
+      },
+    },
+    MuiDrawer: {
+      styleOverrides: {
+        paper: {
+          borderRight: '1px solid #e5e7eb',
+          boxShadow: 'none',
+        },
+      },
+    },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+          border: '1px solid #f3f4f6',
+          transition: 'all 0.2s ease-in-out',
+          '&:hover': {
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            transform: 'translateY(-1px)',
+          },
+        },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: '8px',
+          padding: '10px 20px',
+          fontSize: '0.875rem',
+          fontWeight: 600,
+          textTransform: 'none',
+          boxShadow: 'none',
+          '&:hover': {
+            boxShadow: '0 2px 4px 0 rgba(0, 0, 0, 0.1)',
+          },
+        },
+        contained: {
+          '&:hover': {
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+          },
+        },
+      },
+    },
+    MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: '8px',
+          margin: '2px 8px',
+          '&.Mui-selected': {
+            backgroundColor: 'rgba(30, 64, 175, 0.08)',
+            '&:hover': {
+              backgroundColor: 'rgba(30, 64, 175, 0.12)',
+            },
+          },
+          '&:hover': {
+            backgroundColor: 'rgba(0, 0, 0, 0.04)',
+          },
+        },
+      },
+    },
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          backgroundImage: 'none',
+        },
+        elevation1: {
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+        },
+        elevation2: {
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+        },
+        elevation3: {
+          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+        },
+      },
+    },
   },
   shadows: [
     'none',
@@ -79,11 +268,14 @@ function App() {
             <Route index element={<HomePage />} />
             <Route path="invoice-processor" element={<InvoiceProcessorPage />} />
             <Route path="processed-invoice" element={<ProcessedInvoicePage />} />
+            <Route path="production-calendar" element={<ProductionCalendarPage />} />
+            <Route path="delivery-calendar" element={<DeliveryCalendarPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="item-list" element={<ItemListPage />} />
             <Route path="item-colors" element={<ItemColorPage />} />
             <Route path="frame-styles" element={<FrameStylePage />} />
             <Route path="glass-options" element={<GlassOptionsPage />} />
+            <Route path="delivery-methods" element={<DeliveryMethodsPage />} />
           </Route>
         </Routes>
       </Router>

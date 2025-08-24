@@ -23,8 +23,14 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField
+  TextField,
+  Select,
+  MenuItem
 } from '@mui/material';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import dayjs from 'dayjs';
 import { 
   CloudUpload,
   TableChart,
@@ -57,10 +63,18 @@ function InvoiceProcessorPage() {
   const [editDialog, setEditDialog] = useState({ open: false, data: null, index: null });
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0, fileName: '' });
   const [items, setItems] = useState([]);
+  const [colors, setColors] = useState([]);
+  const [frameStyles, setFrameStyles] = useState([]);
+  const [deliveryMethods, setDeliveryMethods] = useState([]);
+  const [glassOptions, setGlassOptions] = useState([]);
   
-  // Fetch items from database on component mount
+  // Fetch items, colors, frame styles, delivery methods, and glass options from database on component mount
   useEffect(() => {
     fetchItems();
+    fetchColors();
+    fetchFrameStyles();
+    fetchDeliveryMethods();
+    fetchGlassOptions();
   }, []);
   
   const fetchItems = async () => {
@@ -76,12 +90,88 @@ function InvoiceProcessorPage() {
     }
   };
   
+  const fetchColors = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('item_colors')
+        .select('*');
+      
+      if (error) throw error;
+      setColors(data || []);
+    } catch (error) {
+      console.error('Error fetching colors:', error);
+    }
+  };
+  
+  const fetchFrameStyles = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('frame_styles')
+        .select('*');
+      
+      if (error) throw error;
+      setFrameStyles(data || []);
+    } catch (error) {
+      console.error('Error fetching frame styles:', error);
+    }
+  };
+  
+  const fetchDeliveryMethods = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('delivery_methods')
+        .select('*');
+      
+      if (error) throw error;
+      setDeliveryMethods(data || []);
+    } catch (error) {
+      console.error('Error fetching delivery methods:', error);
+    }
+  };
+
+  const fetchGlassOptions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('glass_options')
+        .select('*');
+      
+      if (error) throw error;
+      setGlassOptions(data || []);
+    } catch (error) {
+      console.error('Error fetching glass options:', error);
+    }
+  };
+  
   // Function to categorize items and count WDGSP
-  const categorizeItems = (invoiceItems) => {
+  const categorizeItems = (invoiceItems, deliveryMethod = '') => {
     const counts = { Window: 0, Door: 0, Glass: 0, Screen: 0, Part: 0 };
-    const unknown = [];
+    const unknownItems = [];
+    const unknownColors = [];
+    const unknownFrameStyles = [];
+    const unknownDeliveryMethods = [];
+    let glassOrderNeeded = false;
+    let itemOrderNeeded = false;
+    const specialOrderItems = [];
+    
+    // Check delivery method
+    if (!deliveryMethod || !deliveryMethod.trim()) {
+      // Empty or missing delivery method
+      const emptyMethodLabel = 'Empty/Missing';
+      if (!unknownDeliveryMethods.includes(emptyMethodLabel)) {
+        unknownDeliveryMethods.push(emptyMethodLabel);
+      }
+    } else {
+      // Non-empty delivery method - check if it exists in database
+      const dbDeliveryMethod = deliveryMethods.find(dbMethod => 
+        dbMethod.name.toLowerCase() === deliveryMethod.toLowerCase()
+      );
+      if (!dbDeliveryMethod && !unknownDeliveryMethods.includes(deliveryMethod)) {
+        unknownDeliveryMethods.push(deliveryMethod);
+      }
+    }
     
     invoiceItems.forEach(item => {
+      // Check item name
       const dbItem = items.find(dbItem => 
         dbItem.name.toLowerCase() === item.name.toLowerCase()
       );
@@ -89,14 +179,71 @@ function InvoiceProcessorPage() {
       if (dbItem && dbItem.item_type !== 'Other') {
         const quantity = parseInt(item.quantity) || 1;
         counts[dbItem.item_type] = (counts[dbItem.item_type] || 0) + quantity;
+        
+        // Check if this item requires a special order
+        if (dbItem.order_needed) {
+          itemOrderNeeded = true;
+          specialOrderItems.push({
+            name: item.name,
+            quantity: item.quantity,
+            type: 'item'
+          });
+        }
       } else if (!dbItem) {
-        unknown.push(item.name);
+        unknownItems.push(item.name);
+      }
+      
+      // Check color
+      if (item.color && item.color.trim()) {
+        const dbColor = colors.find(dbColor => 
+          dbColor.color_name.toLowerCase() === item.color.toLowerCase()
+        );
+        if (!dbColor && !unknownColors.includes(item.color)) {
+          unknownColors.push(item.color);
+        }
+      }
+      
+      // Check frame style
+      if (item.frame && item.frame.trim()) {
+        const dbFrameStyle = frameStyles.find(dbFrame => 
+          dbFrame.style_name.toLowerCase() === item.frame.toLowerCase()
+        );
+        if (!dbFrameStyle && !unknownFrameStyles.includes(item.frame)) {
+          unknownFrameStyles.push(item.frame);
+        }
+      }
+      
+      // Check glass option for order requirement
+      if (item.glassOption && item.glassOption.trim()) {
+        const glassOptionText = item.glassOption.toLowerCase();
+        const matchingGlassOption = glassOptions.find(dbGlass => 
+          glassOptionText.includes(dbGlass.glass_type.toLowerCase()) && dbGlass.order_needed
+        );
+        
+        if (matchingGlassOption) {
+          glassOrderNeeded = true;
+          specialOrderItems.push({
+            name: item.name,
+            quantity: item.quantity,
+            glassOption: item.glassOption,
+            type: 'glass'
+          });
+        }
       }
     });
     
+    const hasSpecialOrder = glassOrderNeeded || itemOrderNeeded;
+    
     return {
       wdgspString: `${counts.Window}/${counts.Door}/${counts.Glass}/${counts.Screen}/${counts.Part}`,
-      unknownItems: unknown
+      unknownItems,
+      unknownColors,
+      unknownFrameStyles,
+      unknownDeliveryMethods,
+      glassOrderNeeded,
+      itemOrderNeeded,
+      hasSpecialOrder,
+      specialOrderItems
     };
   };
 
@@ -299,6 +446,7 @@ function InvoiceProcessorPage() {
                   address: ''
                 },
                 dueDate: columnMap.dueDate >= 0 ? (row[columnMap.dueDate] || '').toString() : '',
+                deliveryDate: columnMap.dueDate >= 0 ? (row[columnMap.dueDate] || '').toString() : '',
                 deliveryMethod: columnMap.via >= 0 ? (row[columnMap.via] || '').toString() : '',
                 paidStatus: columnMap.paid >= 0 ? (row[columnMap.paid] || '').toString() : '',
                 shipTo: {
@@ -331,7 +479,7 @@ function InvoiceProcessorPage() {
           });
           
           const processedInvoices = Object.values(invoiceGroups).map(invoice => {
-            const { wdgspString, unknownItems } = categorizeItems(invoice.items || []);
+            const { wdgspString, unknownItems, unknownColors, unknownFrameStyles, unknownDeliveryMethods, glassOrderNeeded, itemOrderNeeded, hasSpecialOrder, specialOrderItems } = categorizeItems(invoice.items || [], invoice.deliveryMethod);
             
             // Calculate total quantity for all items in this invoice
             const totalQuantity = (invoice.items || []).reduce((sum, item) => {
@@ -342,6 +490,13 @@ function InvoiceProcessorPage() {
               ...invoice,
               wdgspString,
               unknownItems,
+              unknownColors,
+              unknownFrameStyles,
+              unknownDeliveryMethods,
+              glassOrderNeeded,
+              itemOrderNeeded,
+              hasSpecialOrder,
+              specialOrderItems,
               totalQuantity
             };
           });
@@ -368,12 +523,7 @@ function InvoiceProcessorPage() {
     setEditDialog({ open: true, data: { ...data }, index });
   };
 
-  const handleSaveEdit = () => {
-    const updatedResults = [...processedResults];
-    updatedResults[editDialog.index] = editDialog.data;
-    setProcessedResults(updatedResults);
-    setEditDialog({ open: false, data: null, index: null });
-  };
+
 
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
@@ -395,53 +545,46 @@ function InvoiceProcessorPage() {
     }
   };
 
-  // Helper function to get color based on delivery method
-  const getDeliveryMethodColor = (deliveryMethod) => {
-    if (!deliveryMethod) return '#ffffff'; // Default white for empty/null values
-    
-    const method = deliveryMethod.toLowerCase().trim();
-    switch (method) {
-      case 'delivery':
-        return '#e3f2fd'; // Light blue for delivery
-      case 'pick up':
-      case 'pickup':
-        return '#f3e5f5'; // Light purple for pick up
-      default:
-        return '#fff3e0'; // Light orange for unknown methods
-    }
-  };
+
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
+    <Box sx={{ maxWidth: '1200px', mx: 'auto' }}>
       <style>{pulseAnimation}</style>
-      {/* Enhanced Header */}
-      <Box sx={{ 
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        borderRadius: 3,
-        p: 4,
-        mb: 4,
-        color: 'white',
-        textAlign: 'center'
-      }}>
-        <Typography variant="h3" component="h1" gutterBottom sx={{ 
-          fontWeight: 700, 
-          mb: 2,
-          textShadow: '0 2px 4px rgba(0,0,0,0.3)'
-        }}>
-          📊 Invoice Processor
+      {/* Header Section */}
+      <Box sx={{ mb: 4 }}>
+        <Typography 
+          variant="h3" 
+          component="h1" 
+          sx={{
+            fontWeight: 800,
+            color: 'text.primary',
+            mb: 1,
+            fontSize: { xs: '1.75rem', sm: '2.25rem', md: '2.5rem' }
+          }}
+        >
+          Invoice Processor
         </Typography>
-        <Typography variant="h6" sx={{ 
-          opacity: 0.9,
-          fontWeight: 400,
-          maxWidth: 600,
-          mx: 'auto'
-        }}>
-          Transform your Excel invoice data into organized, actionable insights with our intelligent processing system
+        <Typography 
+          variant="body1" 
+          color="text.secondary" 
+          sx={{ 
+            fontSize: '1rem',
+            lineHeight: 1.6,
+            mb: 2
+          }}
+        >
+          Transform your Excel invoice data into organized, actionable insights with our intelligent processing system.
         </Typography>
+        <Chip 
+          icon={<TableChart />}
+          label="Excel Data Processing"
+          variant="outlined"
+          sx={{ 
+            borderRadius: 2,
+            fontWeight: 600
+          }}
+        />
       </Box>
-      <Typography variant="h6" color="text.secondary" paragraph sx={{ mb: 4 }}>
-        Upload Excel files (.xlsm, .xlsx) containing invoice data to process and extract order information.
-      </Typography>
       
       {/* Error Messages */}
       {errors.length > 0 && (
@@ -459,35 +602,18 @@ function InvoiceProcessorPage() {
         </Box>
       )}
       
-      {/* Enhanced File Upload Area */}
-      <Paper
-        elevation={dragActive ? 8 : 2}
+      {/* File Upload Area */}
+      <Card 
         sx={{
-          p: 5,
           mb: 4,
-          border: dragActive ? '3px dashed #1976d2' : '2px dashed #e0e0e0',
-          backgroundColor: dragActive ? 'rgba(25, 118, 210, 0.08)' : 'rgba(248, 250, 252, 0.8)',
+          border: dragActive ? '2px dashed' : '1px solid',
+          borderColor: dragActive ? 'primary.main' : 'divider',
+          backgroundColor: dragActive ? 'action.hover' : 'background.paper',
           cursor: 'pointer',
-          transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-          borderRadius: 3,
-          position: 'relative',
-          overflow: 'hidden',
+          transition: 'all 0.2s ease-in-out',
           '&:hover': {
-            borderColor: '#1976d2',
-            backgroundColor: 'rgba(25, 118, 210, 0.04)',
-            transform: 'translateY(-2px)',
-            boxShadow: '0 8px 25px rgba(25, 118, 210, 0.15)'
-          },
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            height: '4px',
-            background: 'linear-gradient(90deg, #1976d2, #42a5f5)',
-            opacity: dragActive ? 1 : 0,
-            transition: 'opacity 0.3s ease'
+            borderColor: 'primary.main',
+            backgroundColor: 'action.hover'
           }
         }}
         onDragEnter={handleDrag}
@@ -496,31 +622,26 @@ function InvoiceProcessorPage() {
         onDrop={handleDrop}
         onClick={() => document.getElementById('file-input').click()}
       >
-        <Box sx={{ textAlign: 'center' }}>
-          <Box sx={{
-            display: 'inline-flex',
-            p: 3,
-            borderRadius: '50%',
-            backgroundColor: 'primary.main',
-            color: 'white',
-            mb: 3,
-            boxShadow: '0 4px 20px rgba(25, 118, 210, 0.3)'
-          }}>
-            <CloudUpload sx={{ fontSize: 48 }} />
-          </Box>
-          <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, color: 'text.primary' }}>
-            Drop Excel files here or click to browse
+        <CardContent sx={{ p: 4, textAlign: 'center' }}>
+          <CloudUpload 
+            sx={{ 
+              fontSize: 48, 
+              color: 'primary.main', 
+              mb: 2 
+            }} 
+          />
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
+            Upload Excel Files
           </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-            Supports .xlsm and .xlsx files with invoice data
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Drop files here or click to browse • Supports .xlsm and .xlsx formats
           </Typography>
-          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Chip label=".xlsm" color="primary" variant="outlined" size="small" />
-            <Chip label=".xlsx" color="primary" variant="outlined" size="small" />
-            <Chip label="Drag & Drop" color="secondary" variant="outlined" size="small" />
+          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1 }}>
+            <Chip label=".xlsm" size="small" variant="outlined" />
+            <Chip label=".xlsx" size="small" variant="outlined" />
           </Box>
-        </Box>
-      </Paper>
+        </CardContent>
+      </Card>
       <input
         id="file-input"
         type="file"
@@ -530,33 +651,22 @@ function InvoiceProcessorPage() {
         onChange={handleFileSelect}
       />
 
-      {/* Enhanced Selected Files Preview */}
+      {/* Selected Files Preview */}
       {selectedFiles.length > 0 && (
-        <Paper elevation={3} sx={{ p: 4, mb: 4, borderRadius: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-            <Box sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 40,
-              height: 40,
-              borderRadius: 2,
-              backgroundColor: 'success.main',
-              color: 'white',
-              mr: 2
-            }}>
-              <TableChart />
+        <Card sx={{ mb: 4 }}>
+          <CardContent sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <TableChart sx={{ color: 'primary.main', mr: 1 }} />
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                Selected Files
+              </Typography>
+              <Chip 
+                label={selectedFiles.length} 
+                color="primary" 
+                size="small" 
+                sx={{ ml: 2 }}
+              />
             </Box>
-            <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              Selected Files ({selectedFiles.length})
-            </Typography>
-            <Chip 
-              label={`${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''}`} 
-              color="primary" 
-              size="small" 
-              sx={{ ml: 2 }}
-            />
-          </Box>
           <Grid container spacing={3}>
             {selectedFiles.map((file, index) => (
               <Grid item xs={12} sm={6} md={4} key={index}>
@@ -618,17 +728,14 @@ function InvoiceProcessorPage() {
               </Grid>
             ))}
           </Grid>
-        </Paper>
+        </CardContent>
+        </Card>
       )}
 
       {/* Enhanced Processing Status */}
       {processing && (
-        <Paper elevation={4} sx={{ 
-          p: 4, 
-          mb: 4, 
-          borderRadius: 3,
-          background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
-        }}>
+        <Card sx={{ mb: 4 }}>
+          <CardContent sx={{ p: 3 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
             <Box sx={{
               display: 'flex',
@@ -670,12 +777,117 @@ function InvoiceProcessorPage() {
           <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
             📊 Reading Excel data and parsing invoice information...
           </Typography>
-        </Paper>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Enhanced Summary Statistics */}
+      {processingComplete && processedResults.length > 0 && (
+        <Card sx={{ mb: 4 }}>
+          <CardContent sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>
+              📈 Processing Summary
+            </Typography>
+            <Grid container spacing={3}>
+               <Grid item xs={12} sm={6} md={3}>
+                 <Card sx={{ 
+                   background: 'linear-gradient(135deg, #4caf50 0%, #81c784 100%)',
+                   color: 'white',
+                   boxShadow: '0 4px 20px rgba(76, 175, 80, 0.3)',
+                   height: '140px',
+                   display: 'flex',
+                   alignItems: 'center'
+                 }}>
+                   <CardContent sx={{ p: 3, textAlign: 'center', width: '100%' }}>
+                   <Typography variant="h3" fontWeight="bold" sx={{ mb: 1 }}>
+                     {processedResults.filter(r => r.status === 'success').length}
+                   </Typography>
+                   <Typography variant="body1" sx={{ opacity: 0.9 }}>
+                     ✅ Processed Invoices
+                   </Typography>
+                   </CardContent>
+                 </Card>
+               </Grid>
+               <Grid item xs={12} sm={6} md={3}>
+                 <Card sx={{ 
+                   background: 'linear-gradient(135deg, #f44336 0%, #ef5350 100%)',
+                   color: 'white',
+                   boxShadow: '0 4px 20px rgba(244, 67, 54, 0.3)',
+                   height: '140px',
+                   display: 'flex',
+                   alignItems: 'center'
+                 }}>
+                   <CardContent sx={{ p: 3, textAlign: 'center', width: '100%' }}>
+                   <Typography variant="h3" fontWeight="bold" sx={{ mb: 1 }}>
+                      {processedResults.filter(r => 
+                        (r.unknownItems && r.unknownItems.length > 0) ||
+                        (r.unknownColors && r.unknownColors.length > 0) ||
+                        (r.unknownFrameStyles && r.unknownFrameStyles.length > 0) ||
+                        (r.unknownDeliveryMethods && r.unknownDeliveryMethods.length > 0)
+                      ).length}
+                    </Typography>
+                    <Typography variant="body1" sx={{ opacity: 0.9 }}>
+                      ⚠️ Need Attention
+                    </Typography>
+                   </CardContent>
+                 </Card>
+               </Grid>
+               <Grid item xs={12} sm={6} md={3}>
+                 <Card sx={{ 
+                   background: 'linear-gradient(135deg, #2196f3 0%, #64b5f6 100%)',
+                   color: 'white',
+                   boxShadow: '0 4px 20px rgba(33, 150, 243, 0.3)',
+                   height: '140px',
+                   display: 'flex',
+                   alignItems: 'center'
+                 }}>
+                   <CardContent sx={{ p: 3, textAlign: 'center', width: '100%' }}>
+                   <Typography variant="h3" fontWeight="bold" sx={{ mb: 1 }}>
+                     {processedResults.reduce((sum, r) => {
+                       if (r.items && Array.isArray(r.items)) {
+                         return sum + r.items.reduce((itemSum, item) => {
+                           return itemSum + (parseInt(item.quantity) || 0);
+                         }, 0);
+                       }
+                       return sum;
+                     }, 0)}
+                   </Typography>
+                   <Typography variant="body1" sx={{ opacity: 0.9 }}>
+                     📦 Item Quantities
+                   </Typography>
+                   </CardContent>
+                 </Card>
+               </Grid>
+               <Grid item xs={12} sm={6} md={3}>
+                 <Card sx={{ 
+                   background: 'linear-gradient(135deg, #ff9800 0%, #ffb74d 100%)',
+                   color: 'white',
+                   boxShadow: '0 4px 20px rgba(255, 152, 0, 0.3)',
+                   height: '140px',
+                   display: 'flex',
+                   alignItems: 'center'
+                 }}>
+                   <CardContent sx={{ p: 3, textAlign: 'center', width: '100%' }}>
+                   <Typography variant="h3" fontWeight="bold" sx={{ mb: 1 }}>
+                      {processedResults.filter(r => 
+                        r.deliveryMethod && r.deliveryMethod.toLowerCase() === 'delivery'
+                      ).length}
+                    </Typography>
+                    <Typography variant="body1" sx={{ opacity: 0.9 }}>
+                      🚚 Total Deliveries
+                    </Typography>
+                   </CardContent>
+                 </Card>
+               </Grid>
+             </Grid>
+          </CardContent>
+        </Card>
       )}
 
       {/* Enhanced Processing Results */}
       {processingComplete && processedResults.length > 0 && (
-        <Paper elevation={4} sx={{ p: 4, mb: 4, borderRadius: 3 }}>
+        <Card sx={{ mb: 4 }}>
+          <CardContent sx={{ p: 3 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <Box sx={{
@@ -708,33 +920,29 @@ function InvoiceProcessorPage() {
                 <TableRow sx={{ backgroundColor: 'primary.main' }}>
                   <TableCell sx={{ color: 'white', fontWeight: 600 }}>Order No.</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 600 }}>Customer</TableCell>
-                  <TableCell sx={{ color: 'white', fontWeight: 600 }}>Order Date</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 600 }}>Delivery Method</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 600 }}>WDGSP</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 600 }}>Item Qty</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 600 }}>Special Order</TableCell>
                   <TableCell align="center" sx={{ color: 'white', fontWeight: 600 }}>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {processedResults.map((result, index) => {
-                  const hasUnknownItems = result.unknownItems && result.unknownItems.length > 0;
+                  const hasUnknownItems = (result.unknownItems && result.unknownItems.length > 0) ||
+                                          (result.unknownColors && result.unknownColors.length > 0) ||
+                                          (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
+                                          (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0);
                   return (
                     <TableRow 
                     key={index} 
                     hover 
                     sx={{ 
-                      backgroundColor: hasUnknownItems 
-                        ? 'rgba(255, 193, 7, 0.1)' // Warning yellow background for unknown items
-                        : getDeliveryMethodColor(result.deliveryMethod),
-                      border: hasUnknownItems ? '2px solid #ff9800' : 'none', // Orange border for unknown items
+                      backgroundColor: '#ffffff', // Clean white background for all rows
                       '&:hover': {
-                        backgroundColor: hasUnknownItems 
-                          ? 'rgba(255, 193, 7, 0.2)' // Slightly darker yellow on hover
-                          : `${getDeliveryMethodColor(result.deliveryMethod)} !important`, // Preserve delivery method color
+                        backgroundColor: 'rgba(0, 0, 0, 0.04)', // Light gray on hover
                         transform: 'scale(1.01)',
-                        boxShadow: hasUnknownItems 
-                          ? '0 4px 15px rgba(255, 152, 0, 0.3)' // Orange shadow for unknown items
-                          : '0 4px 15px rgba(0,0,0,0.1)',
+                        boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
                         zIndex: 1
                       },
                       transition: 'all 0.2s ease'
@@ -743,7 +951,34 @@ function InvoiceProcessorPage() {
                       <TableCell sx={{ fontWeight: 500 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           {hasUnknownItems && (
-                            <Tooltip title={`Unknown items: ${result.unknownItems.join(', ')}`}>
+                            <Tooltip title={
+                               <Box>
+                                 {result.unknownItems?.length > 0 && (
+                                   <Box sx={{ mb: 1 }}>
+                                     <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'warning.main' }}>Unknown Items:</Typography>
+                                     <Typography variant="body2">{result.unknownItems.join(', ')}</Typography>
+                                   </Box>
+                                 )}
+                                 {result.unknownColors?.length > 0 && (
+                                   <Box sx={{ mb: 1 }}>
+                                     <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'warning.main' }}>Unknown Colors:</Typography>
+                                     <Typography variant="body2">{result.unknownColors.join(', ')}</Typography>
+                                   </Box>
+                                 )}
+                                 {result.unknownFrameStyles?.length > 0 && (
+                                   <Box sx={{ mb: 1 }}>
+                                     <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'warning.main' }}>Unknown Frame Styles:</Typography>
+                                     <Typography variant="body2">{result.unknownFrameStyles.join(', ')}</Typography>
+                                   </Box>
+                                 )}
+                                 {result.unknownDeliveryMethods?.length > 0 && (
+                                   <Box>
+                                     <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'warning.main' }}>Unknown Delivery Methods:</Typography>
+                                     <Typography variant="body2">{result.unknownDeliveryMethods.join(', ')}</Typography>
+                                   </Box>
+                                 )}
+                               </Box>
+                             }>
                               <Warning 
                                 fontSize="small" 
                                 sx={{ 
@@ -757,7 +992,6 @@ function InvoiceProcessorPage() {
                         </Box>
                       </TableCell>
                       <TableCell>{result.customerInfo?.name || 'N/A'}</TableCell>
-                      <TableCell>{result.orderDate || 'N/A'}</TableCell>
                       <TableCell>
                         <Chip 
                           label={result.deliveryMethod || 'N/A'}
@@ -767,69 +1001,58 @@ function InvoiceProcessorPage() {
                         />
                       </TableCell>
                       <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Chip 
-                            label={result.wdgspString || '0/0/0/0/0'}
-                            size="small"
-                            color="info"
-                            variant="outlined"
-                          />
-                          {hasUnknownItems && (
-                            <Chip 
-                              label="⚠️ Check Items"
-                              size="small"
-                              color="warning"
-                              variant="filled"
-                              sx={{ fontWeight: 600 }}
-                            />
-                          )}
-                        </Box>
+                        <Chip 
+                          label={result.wdgspString || '0/0/0/0/0'}
+                          size="small"
+                          color="info"
+                          variant="outlined"
+                        />
                       </TableCell>
                       <TableCell>
                         <Chip 
                           label={`${result.totalQuantity || 0}`}
                           size="small"
-                          color={hasUnknownItems ? 'warning' : 'default'}
+                          color="default"
                           variant="outlined"
                         />
+                      </TableCell>
+                      <TableCell>
+                        {result.hasSpecialOrder ? (
+                          <Chip 
+                            label="Yes"
+                            size="small"
+                            color="error"
+                            variant="filled"
+                            sx={{ fontWeight: 600 }}
+                          />
+                        ) : (
+                          <Chip 
+                            label="No"
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                          />
+                        )}
                       </TableCell>
                       <TableCell align="center">
                         <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
                           {result.status !== 'error' && (
-                            <>
-                              <Tooltip title="Preview Details">
-                                <IconButton 
-                                  size="small" 
-                                  onClick={() => handlePreview(result)}
-                                  sx={{
-                                    backgroundColor: 'primary.light',
-                                    color: 'primary.main',
-                                    '&:hover': {
-                                      backgroundColor: 'primary.main',
-                                      color: 'white'
-                                    }
-                                  }}
-                                >
-                                  <Visibility fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Edit Data">
-                                <IconButton 
-                                  size="small" 
-                                  onClick={() => handleEdit(result, index)}
-                                  sx={{
-                                    backgroundColor: 'warning.light',
-                                    color: 'warning.main',
-                                    '&:hover': {
-                                      backgroundColor: 'warning.main',
-                                      color: 'white'
-                                    }
-                                  }}
-                                >
-                                  <Edit fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </>
+                            <Tooltip title="Preview Details">
+                              <IconButton 
+                                size="small" 
+                                onClick={() => handlePreview(result)}
+                                sx={{
+                                  backgroundColor: 'primary.light',
+                                  color: 'primary.main',
+                                  '&:hover': {
+                                    backgroundColor: 'primary.main',
+                                    color: 'white'
+                                  }
+                                }}
+                              >
+                                <Visibility fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           )}
                         </Box>
                       </TableCell>
@@ -870,89 +1093,139 @@ function InvoiceProcessorPage() {
             </Box>
           )}
           
-          {/* Enhanced Summary Statistics */}
-          <Divider sx={{ my: 4 }} />
-          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>
-            📈 Processing Summary
-          </Typography>
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6} md={3}>
-              <Paper sx={{ 
-                p: 3, 
-                textAlign: 'center', 
-                background: 'linear-gradient(135deg, #4caf50 0%, #81c784 100%)',
-                color: 'white',
-                borderRadius: 3,
-                boxShadow: '0 4px 20px rgba(76, 175, 80, 0.3)'
-              }}>
-                <Typography variant="h3" fontWeight="bold" sx={{ mb: 1 }}>
-                  {processedResults.filter(r => r.status === 'success').length}
+          {/* Unknown Colors Warning */}
+          {processedResults.some(result => result.unknownColors && result.unknownColors.length > 0) && (
+            <Box sx={{ mt: 3, mb: 2 }}>
+              <Alert severity="warning" sx={{ borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                  🎨 Unknown Colors Found
                 </Typography>
-                <Typography variant="body1" sx={{ opacity: 0.9 }}>
-                  ✅ Successfully Processed
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  The following invoices contain colors that don't match your color database. Please review and update:
                 </Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Paper sx={{ 
-                p: 3, 
-                textAlign: 'center', 
-                background: 'linear-gradient(135deg, #f44336 0%, #ef5350 100%)',
-                color: 'white',
-                borderRadius: 3,
-                boxShadow: '0 4px 20px rgba(244, 67, 54, 0.3)'
-              }}>
-                <Typography variant="h3" fontWeight="bold" sx={{ mb: 1 }}>
-                  {processedResults.filter(r => r.status === 'error').length}
+                {processedResults
+                  .filter(result => result.unknownColors && result.unknownColors.length > 0)
+                  .map((result, index) => (
+                    <Box key={index} sx={{ mb: 2, p: 2, backgroundColor: 'rgba(255,193,7,0.1)', borderRadius: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                        Invoice #{result.orderNo} - {result.customerInfo?.name}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Unknown colors: {result.unknownColors.join(', ')}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                        💡 Suggestion: Add these colors to your color database or verify the color names in the Excel file
+                      </Typography>
+                    </Box>
+                  ))
+                }
+              </Alert>
+            </Box>
+          )}
+          
+          {/* Unknown Frame Styles Warning */}
+          {processedResults.some(result => result.unknownFrameStyles && result.unknownFrameStyles.length > 0) && (
+            <Box sx={{ mt: 3, mb: 2 }}>
+              <Alert severity="warning" sx={{ borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                  🖼️ Unknown Frame Styles Found
                 </Typography>
-                <Typography variant="body1" sx={{ opacity: 0.9 }}>
-                  ❌ Failed
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  The following invoices contain frame styles that don't match your frame style database. Please review and update:
                 </Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Paper sx={{ 
-                p: 3, 
-                textAlign: 'center', 
-                background: 'linear-gradient(135deg, #2196f3 0%, #64b5f6 100%)',
-                color: 'white',
-                borderRadius: 3,
-                boxShadow: '0 4px 20px rgba(33, 150, 243, 0.3)'
-              }}>
-                <Typography variant="h3" fontWeight="bold" sx={{ mb: 1 }}>
-                  {processedResults.reduce((sum, r) => {
-                    if (r.items && Array.isArray(r.items)) {
-                      return sum + r.items.reduce((itemSum, item) => {
-                        return itemSum + (parseInt(item.quantity) || 0);
-                      }, 0);
-                    }
-                    return sum;
-                  }, 0)}
+                {processedResults
+                  .filter(result => result.unknownFrameStyles && result.unknownFrameStyles.length > 0)
+                  .map((result, index) => (
+                    <Box key={index} sx={{ mb: 2, p: 2, backgroundColor: 'rgba(255,193,7,0.1)', borderRadius: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                        Invoice #{result.orderNo} - {result.customerInfo?.name}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Unknown frame styles: {result.unknownFrameStyles.join(', ')}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                        💡 Suggestion: Add these frame styles to your frame style database or verify the frame style names in the Excel file
+                      </Typography>
+                    </Box>
+                  ))
+                }
+              </Alert>
+            </Box>
+          )}
+          
+          {/* Unknown Delivery Methods Warning */}
+          {processedResults.some(result => result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) && (
+            <Box sx={{ mt: 3, mb: 2 }}>
+              <Alert severity="warning" sx={{ borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                  🚚 Unknown Delivery Methods Found
                 </Typography>
-                <Typography variant="body1" sx={{ opacity: 0.9 }}>
-                  📦 Total Item Quantities
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  The following invoices contain delivery methods that don't match your delivery method database. Please review and update:
                 </Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Paper sx={{ 
-                p: 3, 
-                textAlign: 'center', 
-                background: 'linear-gradient(135deg, #ff9800 0%, #ffb74d 100%)',
-                color: 'white',
-                borderRadius: 3,
-                boxShadow: '0 4px 20px rgba(255, 152, 0, 0.3)'
-              }}>
-                <Typography variant="h3" fontWeight="bold" sx={{ mb: 1 }}>
-                  {processedResults.reduce((sum, r) => sum + (r.items?.length || 0), 0)}
+                {processedResults
+                  .filter(result => result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0)
+                  .map((result, index) => (
+                    <Box key={index} sx={{ mb: 2, p: 2, backgroundColor: 'rgba(255,193,7,0.1)', borderRadius: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                        Invoice #{result.orderNo} - {result.customerInfo?.name}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Unknown delivery methods: {result.unknownDeliveryMethods.join(', ')}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                        💡 Suggestion: Add these delivery methods to your delivery method database or verify the delivery method names in the Excel file
+                      </Typography>
+                    </Box>
+                  ))
+                }
+              </Alert>
+            </Box>
+          )}
+          
+          {/* Special Order Warning */}
+          {processedResults.some(result => result.hasSpecialOrder) && (
+            <Box sx={{ mt: 3, mb: 2 }}>
+              <Alert severity="error" sx={{ borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                  🔍 Special Orders Required
                 </Typography>
-                <Typography variant="body1" sx={{ opacity: 0.9 }}>
-                  📋 Total Items
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  The following invoices contain items or glass options that require special orders. Please review and process:
                 </Typography>
-              </Paper>
-            </Grid>
-          </Grid>
-        </Paper>
+                {processedResults
+                  .filter(result => result.hasSpecialOrder)
+                  .map((result, index) => {
+                    return (
+                      <Box key={index} sx={{ mb: 2, p: 2, backgroundColor: 'rgba(244, 67, 54, 0.1)', borderRadius: 1 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                          Invoice #{result.orderNo} - {result.customerInfo?.name}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          Items requiring special orders:
+                        </Typography>
+                        {result.specialOrderItems?.map((item, itemIndex) => (
+                          <Box key={itemIndex} sx={{ ml: 2, mb: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              • {item.name} (Qty: {item.quantity})
+                              {item.type === 'glass' && item.glassOption && ` - Glass: ${item.glassOption}`}
+                              {item.type === 'item' && ' - Item requires special order'}
+                            </Typography>
+                          </Box>
+                        ))}
+                        <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                          🚨 Action Required: Contact suppliers to place special orders for these items
+                        </Typography>
+                      </Box>
+                    );
+                  })
+                }
+              </Alert>
+            </Box>
+          )}
+
+          </CardContent>
+        </Card>
       )}
 
       {/* Enhanced Action Buttons */}
@@ -1047,10 +1320,10 @@ function InvoiceProcessorPage() {
             </Box>
             <Box>
               <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
-                Invoice Preview
+                Invoice Preview & Edit
               </Typography>
               <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                Order #{previewDialog.data?.orderNo || 'N/A'}
+                Order #{previewDialog.data?.orderNo || 'N/A'} • Review details and edit if needed
               </Typography>
             </Box>
           </Box>
@@ -1120,19 +1393,50 @@ function InvoiceProcessorPage() {
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>{previewDialog.data.dueDate || 'Not found'}</Typography>
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>Delivery Date</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>{previewDialog.data.deliveryDate || 'Not found'}</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
                           <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>PO Number</Typography>
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>{previewDialog.data.poNumber || 'Not found'}</Typography>
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
                           <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>Delivery Method</Typography>
-                          <Chip 
-                            label={previewDialog.data.deliveryMethod || 'Not found'}
-                            size="small"
-                            color={previewDialog.data.deliveryMethod?.toLowerCase() === 'delivery' ? 'primary' : 'secondary'}
-                            sx={{ fontWeight: 500 }}
-                          />
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {(() => {
+                              const isUnknownDeliveryMethod = previewDialog.data.deliveryMethod && 
+                                !deliveryMethods.some(dm => dm.name.toLowerCase() === previewDialog.data.deliveryMethod.toLowerCase());
+                              const isEmptyDeliveryMethod = !previewDialog.data.deliveryMethod || previewDialog.data.deliveryMethod.trim() === '';
+                              
+                              return (
+                                <>
+                                  <Chip 
+                                    label={previewDialog.data.deliveryMethod || 'Not found'}
+                                    size="small"
+                                    color={isUnknownDeliveryMethod || isEmptyDeliveryMethod ? 'warning' : 
+                                           previewDialog.data.deliveryMethod?.toLowerCase() === 'delivery' ? 'primary' : 'secondary'}
+                                    sx={{ fontWeight: 500 }}
+                                  />
+                                  {(isUnknownDeliveryMethod || isEmptyDeliveryMethod) && (
+                                    <Tooltip title={isEmptyDeliveryMethod ? 
+                                      'Delivery method is empty or missing' : 
+                                      `"${previewDialog.data.deliveryMethod}" not found in database`
+                                    }>
+                                      <Warning 
+                                        fontSize="small" 
+                                        sx={{ 
+                                          color: 'warning.main',
+                                          animation: 'pulse 2s infinite'
+                                        }} 
+                                      />
+                                    </Tooltip>
+                                  )}
+                                </>
+                              );
+                            })()} 
+                          </Box>
                         </Box>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
                           <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>Paid Status</Typography>
                           <Chip 
                             label={previewDialog.data.paidStatus || 'Not found'}
@@ -1140,6 +1444,26 @@ function InvoiceProcessorPage() {
                             color={previewDialog.data.paidStatus?.toLowerCase() === 'paid' ? 'success' : 'warning'}
                             sx={{ fontWeight: 500 }}
                           />
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
+                          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>Glass Order</Typography>
+                          {previewDialog.data.hasSpecialOrder ? (
+                            <Chip 
+                              label="🔍 Order Needed"
+                              size="small"
+                              color="error"
+                              variant="filled"
+                              sx={{ fontWeight: 600 }}
+                            />
+                          ) : (
+                            <Chip 
+                              label="No Order Required"
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                              sx={{ fontWeight: 500 }}
+                            />
+                          )}
                         </Box>
                       </Box>
                     </CardContent>
@@ -1234,7 +1558,7 @@ function InvoiceProcessorPage() {
                             boxShadow: 'none'
                           }}
                         >
-                          <Table size="small">
+                          <Table size="small" sx={{ minWidth: 1400 }}>
                             <TableHead>
                               <TableRow sx={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>
                                 <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Item</TableCell>
@@ -1244,6 +1568,7 @@ function InvoiceProcessorPage() {
                                 <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>P/V</TableCell>
                                 <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Color</TableCell>
                                 <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Argon</TableCell>
+                                <TableCell sx={{ fontWeight: 600, color: 'text.primary', width: '40px', textAlign: 'center', padding: '8px 4px' }}>🔍</TableCell>
                                 <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Glass Option</TableCell>
                                 <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Grid Style</TableCell>
                                 <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Frame</TableCell>
@@ -1262,7 +1587,29 @@ function InvoiceProcessorPage() {
                                     }
                                   }}
                                 >
-                                  <TableCell sx={{ fontWeight: 500 }}>{item.name || 'N/A'}</TableCell>
+                                  <TableCell>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                        {item.name || 'N/A'}
+                                      </Typography>
+                                      {(() => {
+                                        const dbItem = items.find(dbItem => 
+                                          dbItem.name.toLowerCase() === (item.name || '').toLowerCase()
+                                        );
+                                        return !dbItem && item.name ? (
+                                          <Tooltip title={`Item "${item.name}" not found in database`}>
+                                            <Warning 
+                                              fontSize="small" 
+                                              sx={{ 
+                                                color: 'warning.main',
+                                                animation: 'pulse 2s infinite'
+                                              }} 
+                                            />
+                                          </Tooltip>
+                                        ) : null;
+                                      })()} 
+                                    </Box>
+                                  </TableCell>
                                   <TableCell>
                                     <Chip 
                                       label={item.quantity || 'N/A'}
@@ -1276,6 +1623,20 @@ function InvoiceProcessorPage() {
                                   <TableCell sx={{ fontFamily: 'monospace' }}>{item.additionalDimension || 'N/A'}</TableCell>
                                   <TableCell>{item.color || 'N/A'}</TableCell>
                                   <TableCell>{item.argon || 'N/A'}</TableCell>
+                                  <TableCell sx={{ width: '40px', textAlign: 'center', padding: '8px 4px' }}>
+                                    {(() => {
+                                      if (item.glassOption && item.glassOption.trim()) {
+                                        const matchingGlassOption = glassOptions.find(dbGlass => 
+                                          item.glassOption.toLowerCase().includes(dbGlass.glass_type.toLowerCase()) && dbGlass.order_needed
+                                        );
+                                        if (matchingGlassOption) {
+                                          return '🔵';
+                                        }
+                                      }
+                                      return '';
+                                    })()
+                                    }
+                                  </TableCell>
                                   <TableCell>{item.glassOption || 'N/A'}</TableCell>
                                   <TableCell>{item.gridStyle || 'N/A'}</TableCell>
                                   <TableCell>{item.frame || 'N/A'}</TableCell>
@@ -1304,18 +1665,55 @@ function InvoiceProcessorPage() {
             </Box>
           )}
         </DialogContent>
+        <DialogActions sx={{ p: 3, backgroundColor: 'rgba(0,0,0,0.02)', justifyContent: 'space-between' }}>
+          <Button
+            onClick={() => setPreviewDialog({ open: false, data: null })}
+            sx={{ 
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 500
+            }}
+          >
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<Edit />}
+            onClick={() => {
+              // Get the index from processedResults
+              const index = processedResults.findIndex(invoice => 
+                invoice.orderNo === previewDialog.data?.orderNo
+              );
+              // Close preview dialog and open edit dialog
+              setPreviewDialog({ open: false, data: null });
+              setEditDialog({ open: true, data: previewDialog.data, index });
+            }}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              backgroundColor: 'warning.main',
+              '&:hover': {
+                backgroundColor: 'warning.dark'
+              }
+            }}
+          >
+            Edit Invoice
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Enhanced Edit Dialog with Item Editing */}
       <Dialog 
         open={editDialog.open} 
         onClose={() => setEditDialog({ open: false, data: null, index: null })}
-        maxWidth="lg"
         fullWidth
         PaperProps={{
           sx: {
             borderRadius: 3,
-            boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
+            boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+            maxWidth: '95vw',
+            width: '95vw'
           }
         }}
       >
@@ -1374,17 +1772,6 @@ function InvoiceProcessorPage() {
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
-                    label="Type"
-                    value={editDialog.data.type || ''}
-                    onChange={(e) => setEditDialog(prev => ({
-                      ...prev,
-                      data: { ...prev.data, type: e.target.value }
-                    }))}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
                     label="Order Number"
                     value={editDialog.data.orderNo || ''}
                     onChange={(e) => setEditDialog(prev => ({
@@ -1394,26 +1781,58 @@ function InvoiceProcessorPage() {
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Order Date"
-                    value={editDialog.data.orderDate || ''}
-                    onChange={(e) => setEditDialog(prev => ({
-                      ...prev,
-                      data: { ...prev.data, orderDate: e.target.value }
-                    }))}
-                  />
+                  <LocalizationProvider dateAdapter={AdapterDayjs}>
+                    <DatePicker
+                      label="Order Date"
+                      value={editDialog.data.orderDate ? dayjs(editDialog.data.orderDate) : null}
+                      onChange={(newValue) => setEditDialog(prev => ({
+                        ...prev,
+                        data: { ...prev.data, orderDate: newValue ? newValue.format('YYYY-MM-DD') : '' }
+                      }))}
+                      slotProps={{
+                        textField: {
+                          fullWidth: true,
+                          size: 'medium'
+                        }
+                      }}
+                    />
+                  </LocalizationProvider>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Due Date"
-                    value={editDialog.data.dueDate || ''}
-                    onChange={(e) => setEditDialog(prev => ({
-                      ...prev,
-                      data: { ...prev.data, dueDate: e.target.value }
-                    }))}
-                  />
+                  <LocalizationProvider dateAdapter={AdapterDayjs}>
+                    <DatePicker
+                      label="Due Date"
+                      value={editDialog.data.dueDate ? dayjs(editDialog.data.dueDate) : null}
+                      onChange={(newValue) => setEditDialog(prev => ({
+                        ...prev,
+                        data: { ...prev.data, dueDate: newValue ? newValue.format('YYYY-MM-DD') : '' }
+                      }))}
+                      slotProps={{
+                        textField: {
+                          fullWidth: true,
+                          size: 'medium'
+                        }
+                      }}
+                    />
+                  </LocalizationProvider>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <LocalizationProvider dateAdapter={AdapterDayjs}>
+                    <DatePicker
+                      label="Delivery Date"
+                      value={editDialog.data.deliveryDate ? dayjs(editDialog.data.deliveryDate) : null}
+                      onChange={(newValue) => setEditDialog(prev => ({
+                        ...prev,
+                        data: { ...prev.data, deliveryDate: newValue ? newValue.format('YYYY-MM-DD') : '' }
+                      }))}
+                      slotProps={{
+                        textField: {
+                          fullWidth: true,
+                          size: 'medium'
+                        }
+                      }}
+                    />
+                  </LocalizationProvider>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
@@ -1444,15 +1863,40 @@ function InvoiceProcessorPage() {
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Via (Delivery Method)"
-                    value={editDialog.data.deliveryMethod || ''}
-                    onChange={(e) => setEditDialog(prev => ({
-                      ...prev,
-                      data: { ...prev.data, deliveryMethod: e.target.value }
-                    }))}
-                  />
+                  {(() => {
+                    const isUnknownDeliveryMethod = editDialog.data.deliveryMethod && 
+                      !deliveryMethods.some(dm => dm.name.toLowerCase() === editDialog.data.deliveryMethod.toLowerCase());
+                    
+                    return (
+                      <TextField
+                        fullWidth
+                        label="Via (Delivery Method)"
+                        value={editDialog.data.deliveryMethod || ''}
+                        onChange={(e) => setEditDialog(prev => ({
+                          ...prev,
+                          data: { ...prev.data, deliveryMethod: e.target.value }
+                        }))}
+                        error={isUnknownDeliveryMethod}
+                        helperText={isUnknownDeliveryMethod ? 
+                          `⚠️ "${editDialog.data.deliveryMethod}" not found in database. Please verify or add to delivery methods.` : 
+                          undefined
+                        }
+                        InputProps={{
+                          endAdornment: isUnknownDeliveryMethod ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+                              <Chip 
+                                label="⚠️ Unknown"
+                                size="small"
+                                color="warning"
+                                variant="filled"
+                                sx={{ fontWeight: 600, fontSize: '0.7rem' }}
+                              />
+                            </Box>
+                          ) : null
+                        }}
+                      />
+                    );
+                  })()}
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
@@ -1480,7 +1924,11 @@ function InvoiceProcessorPage() {
                     const newItem = {
                       name: '',
                       quantity: 1,
-                      size: '',
+                      width: '',
+                      height: '',
+                      additionalDimension: '',
+                      color: '',
+                      argon: '',
                       glassOption: '',
                       gridStyle: '',
                       frame: ''
@@ -1501,21 +1949,27 @@ function InvoiceProcessorPage() {
               
               {editDialog.data.items && editDialog.data.items.length > 0 ? (
                 <TableContainer 
-                  component={Paper} 
+                  component={Card} 
                   variant="outlined"
                   sx={{ 
                     borderRadius: 2,
                     border: '1px solid rgba(0,0,0,0.08)',
                     boxShadow: 'none',
-                    mb: 2
+                    mb: 2,
+                    overflowX: 'auto',
+                    maxHeight: '60vh'
                   }}
                 >
-                  <Table size="small">
+                  <Table size="small" sx={{ minWidth: 1400 }}>
                     <TableHead>
                       <TableRow sx={{ backgroundColor: 'rgba(0,0,0,0.02)' }}>
                         <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Item</TableCell>
                         <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Qty</TableCell>
-                        <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Size</TableCell>
+                        <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>W</TableCell>
+                        <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>H</TableCell>
+                        <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>P/V</TableCell>
+                        <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Color</TableCell>
+                        <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Argon</TableCell>
                         <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Glass Option</TableCell>
                         <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Grid Style</TableCell>
                         <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Frame</TableCell>
@@ -1526,20 +1980,38 @@ function InvoiceProcessorPage() {
                       {editDialog.data.items.map((item, itemIndex) => (
                         <TableRow key={itemIndex}>
                           <TableCell>
-                            <TextField
-                              size="small"
-                              value={item.name || ''}
-                              onChange={(e) => {
-                                const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], name: e.target.value };
-                                setEditDialog(prev => ({
-                                  ...prev,
-                                  data: { ...prev.data, items: updatedItems }
-                                }));
-                              }}
-                              placeholder="Item name"
-                              sx={{ minWidth: 120 }}
-                            />
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <TextField
+                                size="small"
+                                value={item.name || ''}
+                                onChange={(e) => {
+                                  const updatedItems = [...editDialog.data.items];
+                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], name: e.target.value };
+                                  setEditDialog(prev => ({
+                                    ...prev,
+                                    data: { ...prev.data, items: updatedItems }
+                                  }));
+                                }}
+                                placeholder="Item name"
+                                sx={{ minWidth: 200 }}
+                              />
+                              {(() => {
+                                const dbItem = items.find(dbItem => 
+                                  dbItem.name.toLowerCase() === (item.name || '').toLowerCase()
+                                );
+                                return !dbItem && item.name ? (
+                                  <Tooltip title={`Item "${item.name}" not found in database`}>
+                                    <Warning 
+                                      fontSize="small" 
+                                      sx={{ 
+                                        color: 'warning.main',
+                                        animation: 'pulse 2s infinite'
+                                      }} 
+                                    />
+                                  </Tooltip>
+                                ) : null;
+                              })()}
+                            </Box>
                           </TableCell>
                           <TableCell>
                             <TextField
@@ -1560,18 +2032,102 @@ function InvoiceProcessorPage() {
                           <TableCell>
                             <TextField
                               size="small"
-                              value={item.size || ''}
+                              value={item.width || ''}
                               onChange={(e) => {
                                 const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], size: e.target.value };
+                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], width: e.target.value };
                                 setEditDialog(prev => ({
                                   ...prev,
                                   data: { ...prev.data, items: updatedItems }
                                 }));
                               }}
-                              placeholder="Size"
-                              sx={{ minWidth: 100 }}
+                              placeholder="Width"
+                              sx={{ width: 70 }}
                             />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small"
+                              value={item.height || ''}
+                              onChange={(e) => {
+                                const updatedItems = [...editDialog.data.items];
+                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], height: e.target.value };
+                                setEditDialog(prev => ({
+                                  ...prev,
+                                  data: { ...prev.data, items: updatedItems }
+                                }));
+                              }}
+                              placeholder="Height"
+                              sx={{ width: 70 }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small"
+                              value={item.additionalDimension || ''}
+                              onChange={(e) => {
+                                const updatedItems = [...editDialog.data.items];
+                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], additionalDimension: e.target.value };
+                                setEditDialog(prev => ({
+                                  ...prev,
+                                  data: { ...prev.data, items: updatedItems }
+                                }));
+                              }}
+                              placeholder="P/V"
+                              sx={{ width: 60 }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <TextField
+                                size="small"
+                                value={item.color || ''}
+                                onChange={(e) => {
+                                  const updatedItems = [...editDialog.data.items];
+                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], color: e.target.value };
+                                  setEditDialog(prev => ({
+                                    ...prev,
+                                    data: { ...prev.data, items: updatedItems }
+                                  }));
+                                }}
+                                placeholder="Color"
+                                sx={{ width: 80 }}
+                              />
+                              {(() => {
+                                const dbColor = colors.find(dbColor => 
+                                  dbColor.color_name.toLowerCase() === (item.color || '').toLowerCase()
+                                );
+                                return !dbColor && item.color ? (
+                                  <Tooltip title={`Color "${item.color}" not found in database`}>
+                                    <Warning 
+                                      fontSize="small" 
+                                      sx={{ 
+                                        color: 'warning.main',
+                                        animation: 'pulse 2s infinite'
+                                      }} 
+                                    />
+                                  </Tooltip>
+                                ) : null;
+                              })()}
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Select
+                              size="small"
+                              value={item.argon === 'yes' || item.argon === 'YES' ? 'YES' : 'NONE'}
+                              onChange={(e) => {
+                                const updatedItems = [...editDialog.data.items];
+                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], argon: e.target.value === 'YES' ? 'yes' : '' };
+                                setEditDialog(prev => ({
+                                  ...prev,
+                                  data: { ...prev.data, items: updatedItems }
+                                }));
+                              }}
+                              sx={{ width: 100 }}
+                            >
+                              <MenuItem value="YES">YES</MenuItem>
+                              <MenuItem value="NONE">NONE</MenuItem>
+                            </Select>
                           </TableCell>
                           <TableCell>
                             <TextField
@@ -1586,7 +2142,7 @@ function InvoiceProcessorPage() {
                                 }));
                               }}
                               placeholder="Glass option"
-                              sx={{ minWidth: 120 }}
+                              sx={{ width: 200 }}
                             />
                           </TableCell>
                           <TableCell>
@@ -1602,24 +2158,42 @@ function InvoiceProcessorPage() {
                                 }));
                               }}
                               placeholder="Grid style"
-                              sx={{ minWidth: 100 }}
+                              sx={{ width: 120 }}
                             />
                           </TableCell>
                           <TableCell>
-                            <TextField
-                              size="small"
-                              value={item.frame || ''}
-                              onChange={(e) => {
-                                const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], frame: e.target.value };
-                                setEditDialog(prev => ({
-                                  ...prev,
-                                  data: { ...prev.data, items: updatedItems }
-                                }));
-                              }}
-                              placeholder="Frame"
-                              sx={{ minWidth: 100 }}
-                            />
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <TextField
+                                size="small"
+                                value={item.frame || ''}
+                                onChange={(e) => {
+                                  const updatedItems = [...editDialog.data.items];
+                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], frame: e.target.value };
+                                  setEditDialog(prev => ({
+                                    ...prev,
+                                    data: { ...prev.data, items: updatedItems }
+                                  }));
+                                }}
+                                placeholder="Frame"
+                                sx={{ width: 150 }}
+                              />
+                              {(() => {
+                                const dbFrameStyle = frameStyles.find(dbFrame => 
+                                  dbFrame.style_name.toLowerCase() === (item.frame || '').toLowerCase()
+                                );
+                                return !dbFrameStyle && item.frame ? (
+                                  <Tooltip title={`Frame style "${item.frame}" not found in database`}>
+                                    <Warning 
+                                      fontSize="small" 
+                                      sx={{ 
+                                        color: 'warning.main',
+                                        animation: 'pulse 2s infinite'
+                                      }} 
+                                    />
+                                  </Tooltip>
+                                ) : null;
+                              })()}
+                            </Box>
                           </TableCell>
                           <TableCell>
                             <IconButton
@@ -1710,7 +2284,8 @@ function InvoiceProcessorPage() {
       </Dialog>
 
       {/* Instructions */}
-      <Paper sx={{ p: 3, mt: 4, backgroundColor: 'rgba(25, 118, 210, 0.04)' }}>
+      <Card sx={{ mt: 4 }}>
+          <CardContent sx={{ p: 3, backgroundColor: 'rgba(25, 118, 210, 0.04)' }}>
         <Typography variant="h6" gutterBottom>
           Excel File Format Requirements
         </Typography>
@@ -1740,15 +2315,15 @@ function InvoiceProcessorPage() {
             The system will automatically group rows by invoice number and process delivery method and payment status. Multiple items per invoice are supported.
           </Typography>
         </Typography>
-      </Paper>
+          </CardContent>
+      </Card>
       
       {/* Enhanced Color Legend */}
-      <Paper elevation={2} sx={{ 
-        p: 3, 
+      <Card sx={{ 
         backgroundColor: 'rgba(248, 250, 252, 0.8)', 
-        borderRadius: 3,
         border: '1px solid rgba(0,0,0,0.05)'
       }}>
+        <CardContent sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
           <Box sx={{
             display: 'flex',
@@ -1791,7 +2366,8 @@ function InvoiceProcessorPage() {
             <Typography variant="body1" sx={{ fontWeight: 500 }}>🏪 Pick Up</Typography>
           </Box>
         </Box>
-      </Paper>
+        </CardContent>
+      </Card>
     </Box>
   );
 }
