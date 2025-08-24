@@ -7,7 +7,10 @@ import {
   CardContent
 } from '@mui/material';
 import {
-  List as ListIcon
+  List as ListIcon,
+  Palette as PaletteIcon,
+  CropFree as CropFreeIcon,
+  Window as GlassIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
@@ -16,6 +19,18 @@ function SettingsPage() {
 
   const handleItemListClick = () => {
     navigate('/item-list');
+  };
+
+  const handleItemColorClick = () => {
+    navigate('/item-colors');
+  };
+
+  const handleFrameStyleClick = () => {
+    navigate('/frame-styles');
+  };
+
+  const handleGlassOptionsClick = () => {
+    navigate('/glass-options');
   };
 
   return (
@@ -54,15 +69,79 @@ function SettingsPage() {
           </Card>
         </Grid>
         
-        {/* Future Settings Cards can be added here */}
+        {/* Item Color Card - Clickable */}
         <Grid size={{ xs: 12, md: 6 }}>
-          <Card>
+          <Card 
+            onClick={handleItemColorClick}
+            sx={{ 
+              cursor: 'pointer',
+              transition: 'all 0.2s ease-in-out',
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: 4
+              }
+            }}
+          >
             <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>
-                More Settings
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <PaletteIcon sx={{ mr: 1, color: 'secondary.main', fontSize: 28 }} />
+                <Typography variant="h6">Item Colors</Typography>
+              </Box>
+              
               <Typography variant="body2" color="text.secondary">
-                Additional settings and features will be available here in future updates.
+                Manage color options for your items, including color names and bases.
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        {/* Frame Style Card - Clickable */}
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card 
+            onClick={handleFrameStyleClick}
+            sx={{ 
+              cursor: 'pointer',
+              transition: 'all 0.2s ease-in-out',
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: 4
+              }
+            }}
+          >
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <CropFreeIcon sx={{ mr: 1, color: 'success.main', fontSize: 28 }} />
+                <Typography variant="h6">Frame Styles</Typography>
+              </Box>
+              
+              <Typography variant="body2" color="text.secondary">
+                Manage frame style options for your items, including style names and descriptions.
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        {/* Glass Options Card - Clickable */}
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card 
+            onClick={handleGlassOptionsClick}
+            sx={{ 
+              cursor: 'pointer',
+              transition: 'all 0.2s ease-in-out',
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: 4
+              }
+            }}
+          >
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <GlassIcon sx={{ mr: 1, color: 'info.main', fontSize: 28 }} />
+                <Typography variant="h6">Glass Options</Typography>
+              </Box>
+              
+              <Typography variant="body2" color="text.secondary">
+                Manage glass type options for your items, including special order requirements.
               </Typography>
             </CardContent>
           </Card>

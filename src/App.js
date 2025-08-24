@@ -4,8 +4,12 @@ import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import MainLayout from './layouts/MainLayout';
 import HomePage from './pages/HomePage';
 import InvoiceProcessorPage from './pages/InvoiceProcessorPage';
+import ProcessedInvoicePage from './pages/ProcessedInvoicePage';
 import SettingsPage from './pages/SettingsPage';
 import ItemListPage from './pages/ItemListPage';
+import ItemColorPage from './pages/ItemColorPage';
+import FrameStylePage from './pages/FrameStylePage';
+import GlassOptionsPage from './pages/GlassOptionsPage';
 
 const theme = createTheme({
   palette: {
@@ -74,8 +78,12 @@ function App() {
           <Route path="/" element={<MainLayout />}>
             <Route index element={<HomePage />} />
             <Route path="invoice-processor" element={<InvoiceProcessorPage />} />
+            <Route path="processed-invoice" element={<ProcessedInvoicePage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="item-list" element={<ItemListPage />} />
+            <Route path="item-colors" element={<ItemColorPage />} />
+            <Route path="frame-styles" element={<FrameStylePage />} />
+            <Route path="glass-options" element={<GlassOptionsPage />} />
           </Route>
         </Routes>
       </Router>

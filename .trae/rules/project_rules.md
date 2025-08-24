@@ -3,7 +3,7 @@ My GitHub email address: DRGENIUSLION@GMAIL.COM
 Avoid any hardcoding in my project, unless you ask me and I approve you can hardcode in it
 After every changes, please check the entire project and make sure it can run correctly.
 Avoid putting dummies data in my project, unless you ask me and I approve you can put it in.
-When you proceed editing or changes in the project, if the information you have are not clear, please ask me first.
+When you proceed editing or changes in the project, before you proceed any changes, if the information you have are not clear, please ask me first.
 Supabase project name:rich-office-console
 Supabase project password:XqHP@WwnqBU8
 Supabase Project ID :ljaifyeqaylzxieumxtd

@@ -17,6 +17,7 @@ import {
 import { 
   Home, 
   Receipt,
+  Assignment,
   Settings,
   Menu as MenuIcon
 } from '@mui/icons-material';
@@ -49,6 +50,7 @@ function MainLayout() {
   const menuItems = [
     { text: 'Home', icon: <Home />, path: '/' },
     { text: 'Invoice Processor', icon: <Receipt />, path: '/invoice-processor' },
+    { text: 'Processed Invoice', icon: <Assignment />, path: '/processed-invoice' },
     { text: 'Settings', icon: <Settings />, path: '/settings' },
   ];
 
