@@ -24,7 +24,9 @@ import {
   MenuItem,
   Chip,
   Avatar,
-  Paper
+  Paper,
+  FormControlLabel,
+  Switch
 } from '@mui/material';
 import {
   Add,
@@ -47,6 +49,7 @@ function ItemListPage() {
   const [itemName, setItemName] = useState('');
   const [itemDescription, setItemDescription] = useState('');
   const [itemType, setItemType] = useState('');
+  const [orderNeeded, setOrderNeeded] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [sortBy, setSortBy] = useState('created_at'); // New state for sorting
@@ -112,6 +115,7 @@ function ItemListPage() {
     setItemName('');
     setItemDescription('');
     setItemType('');
+    setOrderNeeded(false);
     setOpenDialog(true);
   };
 
@@ -120,12 +124,13 @@ function ItemListPage() {
     setItemName(item.name);
     setItemDescription(item.description || '');
     setItemType(item.item_type || '');
+    setOrderNeeded(item.order_needed || false);
     setOpenDialog(true);
   };
 
   const handleSaveItem = async () => {
     if (!itemName.trim() || !itemType.trim()) return;
-
+  
     try {
       setError(null);
       
@@ -137,6 +142,7 @@ function ItemListPage() {
             name: itemName.trim(),
             description: itemDescription.trim(),
             item_type: itemType.trim(),
+            order_needed: orderNeeded,
             updated_at: new Date().toISOString()
           })
           .eq('id', editingItem.id);
@@ -151,18 +157,20 @@ function ItemListPage() {
             {
               name: itemName.trim(),
               description: itemDescription.trim(),
-              item_type: itemType.trim()
+              item_type: itemType.trim(),
+              order_needed: orderNeeded
             }
           ]);
         
         if (error) throw error;
         setSuccess('Item added successfully!');
       }
-
+  
       setOpenDialog(false);
       setItemName('');
       setItemDescription('');
       setItemType('');
+      setOrderNeeded(false);
       setEditingItem(null);
       fetchItems(); // Refresh the list
       
@@ -327,6 +335,7 @@ function ItemListPage() {
                 <TableRow sx={{ backgroundColor: '#f8f9fa' }}>
                   <TableCell sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Item Name</TableCell>
                   <TableCell sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Type</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Order Needed</TableCell>
                   <TableCell sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Description</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Actions</TableCell>
                 </TableRow>
@@ -360,6 +369,17 @@ function ItemListPage() {
                           }
                         }}
                       />
+                    </TableCell>
+                    <TableCell sx={{ py: 2 }}>
+                      <Typography 
+                        variant="body2" 
+                        sx={{ 
+                          fontWeight: 500,
+                          color: item.order_needed ? 'warning.main' : 'success.main'
+                        }}
+                      >
+                        {item.order_needed ? 'Yes' : 'No'}
+                      </Typography>
                     </TableCell>
                     <TableCell sx={{ py: 2, maxWidth: 300 }}>
                       <Typography variant="body2" color="text.secondary">
@@ -477,6 +497,17 @@ function ItemListPage() {
               ))}
             </Select>
           </FormControl>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={orderNeeded}
+                onChange={(e) => setOrderNeeded(e.target.checked)}
+                color="primary"
+              />
+            }
+            label="Order Needed"
+            sx={{ mb: 3, display: 'flex', justifyContent: 'space-between' }}
+          />
           <TextField
             margin="dense"
             label="Description (Optional)"
