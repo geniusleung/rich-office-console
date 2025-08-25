@@ -24,6 +24,7 @@ import {
   Menu as MenuIcon
 } from '@mui/icons-material';
 import { useNavigate, Outlet, useLocation } from 'react-router-dom';
+import packageJson from '../../package.json';
 
 const drawerWidth = 240;
 
@@ -147,7 +148,7 @@ function MainLayout() {
             display: 'block'
           }}
         >
-          v1.0.0
+          v{packageJson.version}
         </Typography>
       </Box>
     </Box>
