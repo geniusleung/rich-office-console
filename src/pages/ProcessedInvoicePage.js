@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Container,
   Typography,
@@ -30,7 +30,9 @@ import {
   MenuItem,
   Select,
   FormControl,
-  InputLabel
+  InputLabel,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import {
   Visibility as VisibilityIcon,
@@ -41,9 +43,11 @@ import {
   Edit as EditIcon,
   Close as CloseIcon,
   Add as AddIcon,
-  Remove as RemoveIcon
+  Remove as RemoveIcon,
+  Warning
 } from '@mui/icons-material';
 import { getInvoices, getInvoiceById, deleteInvoice, updateInvoice, updateOrderItems } from '../utils/invoiceService';
+import { supabase } from '../utils/supabaseClient';
 
 function ProcessedInvoicePage() {
   const [invoices, setInvoices] = useState([]);
@@ -69,6 +73,204 @@ function ProcessedInvoicePage() {
   // Edit dialog states
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editInvoiceData, setEditInvoiceData] = useState(null);
+  
+  // Delivery methods state
+  const [deliveryMethods, setDeliveryMethods] = useState([]);
+  
+  // Add missing data states for WDGSP calculation
+  const [items, setItems] = useState([]);
+  const [colors, setColors] = useState([]);
+  const [frameStyles, setFrameStyles] = useState([]);
+  const [glassOptions, setGlassOptions] = useState([]);
+
+  // Fetch delivery methods from database
+  const fetchDeliveryMethods = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('delivery_methods')
+        .select('*')
+        .order('name');
+      
+      if (error) {
+        console.error('Error fetching delivery methods:', error);
+      } else {
+        setDeliveryMethods(data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching delivery methods:', error);
+    }
+  };
+
+  // Add data fetching functions
+  const fetchAllData = useCallback(async () => {
+    try {
+      const [itemsData, colorsData, frameStylesData, glassOptionsData] = await Promise.all([
+        supabase.from('items').select('*'),
+        supabase.from('item_colors').select('*'),
+        supabase.from('frame_styles').select('*'),
+        supabase.from('glass_options').select('*')
+      ]);
+      
+      if (itemsData.error) throw itemsData.error;
+      if (colorsData.error) throw colorsData.error;
+      if (frameStylesData.error) throw frameStylesData.error;
+      if (glassOptionsData.error) throw glassOptionsData.error;
+      
+      setItems(itemsData.data || []);
+      setColors(colorsData.data || []);
+      setFrameStyles(frameStylesData.data || []);
+      setGlassOptions(glassOptionsData.data || []);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    }
+  }, []);
+
+  // Add categorizeItems function
+  const categorizeItems = useCallback((invoiceItems, deliveryMethod = '') => {
+    const counts = { Window: 0, Door: 0, Glass: 0, Screen: 0, Part: 0 };
+    const unknownItems = [];
+    const unknownColors = [];
+    const unknownFrameStyles = [];
+    const unknownDeliveryMethods = [];
+    let glassOrderNeeded = false;
+    let itemOrderNeeded = false;
+    const specialOrderItems = [];
+    
+    // Check delivery method
+    if (!deliveryMethod || !deliveryMethod.trim()) {
+      const emptyMethodLabel = 'Empty/Missing';
+      if (!unknownDeliveryMethods.includes(emptyMethodLabel)) {
+        unknownDeliveryMethods.push(emptyMethodLabel);
+      }
+    } else {
+      const dbDeliveryMethod = deliveryMethods.find(dbMethod => 
+        dbMethod.name.toLowerCase() === deliveryMethod.toLowerCase()
+      );
+      if (!dbDeliveryMethod && !unknownDeliveryMethods.includes(deliveryMethod)) {
+        unknownDeliveryMethods.push(deliveryMethod);
+      }
+    }
+    
+    // Process each item
+    const processedItems = invoiceItems.map(item => {
+      let requiresSpecialOrder = false;
+      
+      // Check item name
+      const dbItem = items.find(dbItem => 
+        dbItem.name.toLowerCase() === (item.item_name || item.name || '').toLowerCase()
+      );
+      
+      if (dbItem && dbItem.item_type !== 'Other') {
+        const quantity = parseInt(item.quantity) || 1;
+        counts[dbItem.item_type] = (counts[dbItem.item_type] || 0) + quantity;
+        
+        if (dbItem.order_needed) {
+          itemOrderNeeded = true;
+          requiresSpecialOrder = true;
+          specialOrderItems.push({
+            name: item.item_name || item.name,
+            quantity: item.quantity,
+            type: 'item'
+          });
+        }
+      } else if (!dbItem && (item.item_name || item.name)) {
+        unknownItems.push(item.item_name || item.name);
+      }
+      
+      // Check color
+      if (item.color && item.color.trim()) {
+        const dbColor = colors.find(dbColor => 
+          dbColor.color_name.toLowerCase() === item.color.toLowerCase()
+        );
+        if (!dbColor && !unknownColors.includes(item.color)) {
+          unknownColors.push(item.color);
+        }
+      }
+      
+      // Check frame style
+      if (item.frame && item.frame.trim()) {
+        const dbFrameStyle = frameStyles.find(dbFrame => 
+          dbFrame.style_name.toLowerCase() === item.frame.toLowerCase()
+        );
+        if (!dbFrameStyle && !unknownFrameStyles.includes(item.frame)) {
+          unknownFrameStyles.push(item.frame);
+        }
+      }
+      
+      // Check glass option
+      if ((item.glass_option || item.glassOption) && (item.glass_option || item.glassOption).trim()) {
+        const glassOptionText = (item.glass_option || item.glassOption).toLowerCase();
+        const matchingGlassOption = glassOptions.find(dbGlass => 
+          glassOptionText.includes(dbGlass.glass_type.toLowerCase()) && dbGlass.order_needed
+        );
+        
+        if (matchingGlassOption) {
+          glassOrderNeeded = true;
+          requiresSpecialOrder = true;
+          specialOrderItems.push({
+            name: item.item_name || item.name,
+            quantity: item.quantity,
+            glassOption: item.glass_option || item.glassOption,
+            type: 'glass'
+          });
+        }
+      }
+      
+      return {
+        ...item,
+        requiresSpecialOrder
+      };
+    });
+    
+    const hasSpecialOrder = glassOrderNeeded || itemOrderNeeded;
+    
+    return {
+      wdgspString: `${counts.Window}/${counts.Door}/${counts.Glass}/${counts.Screen}/${counts.Part}`,
+      unknownItems,
+      unknownColors,
+      unknownFrameStyles,
+      unknownDeliveryMethods,
+      glassOrderNeeded,
+      itemOrderNeeded,
+      hasSpecialOrder,
+      specialOrderItems,
+      processedItems
+    };
+  }, [items, colors, frameStyles, glassOptions, deliveryMethods]);
+
+  // Add these memoized options
+  const itemOptions = useMemo(() => 
+    [...new Set(items.map(dbItem => dbItem.name))].filter(name => name && name.trim()),
+    [items]
+  );
+
+  const colorOptions = useMemo(() => 
+    [...new Set(colors.map(color => color.color_name))].filter(name => name && name.trim()),
+    [colors]
+  );
+
+  const frameOptions = useMemo(() => 
+    [...new Set(frameStyles.map(frame => frame.style_name))].filter(name => name && name.trim()),
+    [frameStyles]
+  );
+
+  const getItemValidation = useCallback((itemName) => {
+    return items.find(dbItem => 
+      dbItem.name.toLowerCase() === (itemName || '').toLowerCase()
+    );
+  }, [items]);
+
+  const getColorValidation = useCallback((colorName) => {
+    return colors.find(color => 
+      color.color_name.toLowerCase() === (colorName || '').toLowerCase()
+    );
+  }, [colors]);
+
+  const getFrameValidation = useCallback((frameName) => {
+    return frameStyles.find(frame => 
+      frame.style_name.toLowerCase() === (frameName || '').toLowerCase()
+    );
+  }, [frameStyles]);
 
   // Handle column sorting
   const handleSort = (column) => {
@@ -149,7 +351,9 @@ function ProcessedInvoicePage() {
   // Load invoices on component mount and when filters change
   useEffect(() => {
     fetchInvoices();
-  }, [fetchInvoices]);
+    fetchDeliveryMethods();
+    fetchAllData();
+  }, [fetchInvoices, fetchAllData]);
 
   // Handle page change
   const handleChangePage = (event, newPage) => {
@@ -215,7 +419,7 @@ function ProcessedInvoicePage() {
 
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom>
           Processed Invoices
@@ -267,8 +471,8 @@ function ProcessedInvoicePage() {
 
       {/* Invoice Table */}
       <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-        <TableContainer>
-          <Table stickyHeader>
+        <TableContainer sx={{ maxHeight: '70vh' }}>
+          <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
                 {renderSortableHeader('Order No.', 'order_no')}
@@ -279,19 +483,20 @@ function ProcessedInvoicePage() {
                 {renderSortableHeader('Quantity', 'total_quantity')}
                 {renderSortableHeader('WDGSP', 'wdgsp_string')}
                 {renderSortableHeader('Special Order', 'has_special_order')}
+                {renderSortableHeader('Paid Status', 'paid_status')}
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
               ) : invoices.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                     <Typography variant="body1" color="text.secondary">
                       No invoices found. Try adjusting your search criteria or import some invoices first.
                     </Typography>
@@ -326,6 +531,18 @@ function ProcessedInvoicePage() {
                       ) : (
                         <Chip label="No" color="default" size="small" />
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={invoice.paid_status || 'N/A'}
+                        size="small"
+                        color={
+                          (invoice.paid_status || '').toLowerCase() === 'paid' ? 'success' :
+                          (invoice.paid_status || '').toLowerCase() === 'unpaid' ? 'error' :
+                          'default'
+                        }
+                        sx={{ fontWeight: 500 }}
+                      />
                     </TableCell>
                     <TableCell>
                       <Tooltip title="View Details">
@@ -441,6 +658,20 @@ function ProcessedInvoicePage() {
                           label={selectedInvoice.delivery_method || 'N/A'}
                           size="small"
                           color={selectedInvoice.delivery_method?.toLowerCase() === 'delivery' ? 'primary' : 'secondary'}
+                          sx={{ fontWeight: 500 }}
+                        />
+                      </Box>
+
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>Paid Status</Typography>
+                        <Chip 
+                          label={selectedInvoice.paid_status || 'N/A'}
+                          size="small"
+                          color={
+                            (selectedInvoice.paid_status || '').toLowerCase() === 'paid' ? 'success' :
+                            (selectedInvoice.paid_status || '').toLowerCase() === 'unpaid' ? 'error' :
+                            'default'
+                          }
                           sx={{ fontWeight: 500 }}
                         />
                       </Box>
@@ -599,8 +830,16 @@ function ProcessedInvoicePage() {
                                 <TableCell sx={{ fontFamily: 'monospace' }}>{item.additional_dimension || 'N/A'}</TableCell>
                                 <TableCell>{item.color || 'N/A'}</TableCell>
                                 <TableCell>{item.argon || 'N/A'}</TableCell>
-                                <TableCell sx={{ width: '40px', textAlign: 'center', padding: '8px 4px' }}>
-                                  {item.glass_option && item.glass_option.toLowerCase().includes('order') ? '🔵' : ''}
+                                <TableCell sx={{ width: '40px', textAlign: 'center', padding: '8px 4px' }}>  
+                                  {item.requiresSpecialOrder ? (
+                                    <Tooltip title="Special Order Required">
+                                      <span>🔵</span>
+                                    </Tooltip>
+                                  ) : (
+                                    <Tooltip title="No Special Order">
+                                      <span>⚪</span>
+                                    </Tooltip>
+                                  )}
                                 </TableCell>
                                 <TableCell>{item.glass_option || 'N/A'}</TableCell>
                                 <TableCell>{item.grid_style || 'N/A'}</TableCell>
@@ -719,119 +958,345 @@ function ProcessedInvoicePage() {
           <DialogContent sx={{ p: 4, flex: 1, overflow: 'auto' }}>
             {editInvoiceData && (
               <Box>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 3, color: 'primary.main' }}>
-                  📋 Invoice Information
-                </Typography>
-                <Grid container spacing={3}>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Customer Name"
-                      value={editInvoiceData.customer_name || ''}
-                      onChange={(e) => setEditInvoiceData(prev => ({
-                        ...prev,
-                        customer_name: e.target.value
-                      }))}
-                    />
+                {/* Invoice Information Header */}
+                <Box sx={{ 
+                  mb: 4, 
+                  p: 3, 
+                  backgroundColor: 'rgba(25, 118, 210, 0.04)',
+                  borderRadius: 2,
+                  border: '1px solid rgba(25, 118, 210, 0.12)'
+                }}>
+                  <Typography variant="h6" sx={{ 
+                    fontWeight: 600, 
+                    mb: 1, 
+                    color: 'primary.main',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1
+                  }}>
+                    📋 Invoice Information
+                  </Typography>
+                </Box>
+
+                {/* Customer & Order Details */}
+                <Box sx={{ mb: 4 }}>
+                  <Typography variant="subtitle1" sx={{ 
+                    fontWeight: 600, 
+                    mb: 2, 
+                    color: 'text.primary',
+                    borderBottom: '2px solid',
+                    borderColor: 'primary.main',
+                    pb: 1,
+                    display: 'inline-block'
+                  }}>
+                    👤 Customer & Order Details
+                  </Typography>
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Customer Name"
+                        value={editInvoiceData.customer_name || ''}
+                        onChange={(e) => setEditInvoiceData(prev => ({
+                          ...prev,
+                          customer_name: e.target.value
+                        }))}
+                        variant="outlined"
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 2,
+                            backgroundColor: 'rgba(255, 255, 255, 0.8)'
+                          }
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Order Number"
+                        value={editInvoiceData.order_no || ''}
+                        onChange={(e) => setEditInvoiceData(prev => ({
+                          ...prev,
+                          order_no: e.target.value
+                        }))}
+                        variant="outlined"
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 2,
+                            backgroundColor: 'rgba(255, 255, 255, 0.8)'
+                          }
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="PO Number"
+                        value={editInvoiceData.po_number || ''}
+                        onChange={(e) => setEditInvoiceData(prev => ({
+                          ...prev,
+                          po_number: e.target.value
+                        }))}
+                        variant="outlined"
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 2,
+                            backgroundColor: 'rgba(255, 255, 255, 0.8)'
+                          }
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Quantity"
+                        type="number"
+                        value={editInvoiceData.total_quantity || ''}
+                        InputProps={{
+                          readOnly: true,
+                          style: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                            color: 'rgba(0, 0, 0, 0.6)',
+                            borderRadius: 8
+                          }
+                        }}
+                        placeholder="Auto-calculated"
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 2
+                          }
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Box sx={{ 
+                        display: 'flex',
+                        alignItems: 'center',
+                        height: '56px',
+                        pl: 2
+                      }}>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={editInvoiceData.paid_status === 'paid' || editInvoiceData.paid_status === true}
+                              onChange={(e) => setEditInvoiceData(prev => ({
+                                ...prev,
+                                paid_status: e.target.checked ? 'paid' : 'unpaid'
+                              }))}
+                              color="success"
+                              size="medium"
+                            />
+                          }
+                          label={
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                Payment Status
+                              </Typography>
+                              <Typography 
+                                variant="caption" 
+                                sx={{ 
+                                  color: editInvoiceData.paid_status === 'paid' || editInvoiceData.paid_status === true ? 'success.main' : 'warning.main',
+                                  fontWeight: 500
+                                }}
+                              >
+                                {editInvoiceData.paid_status === 'paid' || editInvoiceData.paid_status === true ? '✅ Paid' : '⏳ Unpaid'}
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                      </Box>
+                    </Grid>
                   </Grid>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Order Number"
-                      value={editInvoiceData.order_no || ''}
-                      onChange={(e) => setEditInvoiceData(prev => ({
-                        ...prev,
-                        order_no: e.target.value
-                      }))}
-                    />
+                </Box>
+
+                {/* Dates Section */}
+                <Box sx={{ mb: 4 }}>
+                  <Typography variant="subtitle1" sx={{ 
+                    fontWeight: 600, 
+                    mb: 2, 
+                    color: 'text.primary',
+                    borderBottom: '2px solid',
+                    borderColor: 'warning.main',
+                    pb: 1,
+                    display: 'inline-block'
+                  }}>
+                    📅 Dates
+                  </Typography>
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        label="Order Date"
+                        type="date"
+                        value={editInvoiceData.order_date ? editInvoiceData.order_date.split('T')[0] : ''}
+                        onChange={(e) => setEditInvoiceData(prev => ({
+                          ...prev,
+                          order_date: e.target.value
+                        }))}
+                        InputLabelProps={{
+                          shrink: true,
+                        }}
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 2,
+                            backgroundColor: 'rgba(255, 255, 255, 0.8)'
+                          }
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        label="Due Date"
+                        type="date"
+                        value={editInvoiceData.due_date ? editInvoiceData.due_date.split('T')[0] : ''}
+                        onChange={(e) => setEditInvoiceData(prev => ({
+                          ...prev,
+                          due_date: e.target.value
+                        }))}
+                        InputLabelProps={{
+                          shrink: true,
+                        }}
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 2,
+                            backgroundColor: 'rgba(255, 255, 255, 0.8)'
+                          }
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        label="Delivery Date"
+                        type="date"
+                        value={editInvoiceData.delivery_date ? editInvoiceData.delivery_date.split('T')[0] : ''}
+                        onChange={(e) => setEditInvoiceData(prev => ({
+                          ...prev,
+                          delivery_date: e.target.value
+                        }))}
+                        InputLabelProps={{
+                          shrink: true,
+                        }}
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 2,
+                            backgroundColor: 'rgba(255, 255, 255, 0.8)'
+                          }
+                        }}
+                      />
+                    </Grid>
                   </Grid>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Order Date"
-                      type="date"
-                      value={editInvoiceData.order_date ? editInvoiceData.order_date.split('T')[0] : ''}
-                      onChange={(e) => setEditInvoiceData(prev => ({
-                        ...prev,
-                        order_date: e.target.value
-                      }))}
-                      InputLabelProps={{
-                        shrink: true,
-                      }}
-                    />
+                </Box>
+
+                {/* Delivery & Shipping Section - Side by Side */}
+                <Box sx={{ mb: 4 }}>
+                  <Typography variant="subtitle1" sx={{ 
+                    fontWeight: 600, 
+                    mb: 2, 
+                    color: 'text.primary',
+                    borderBottom: '2px solid',
+                    borderColor: 'success.main',
+                    pb: 1,
+                    display: 'inline-block'
+                  }}>
+                    🚚 Delivery & Shipping
+                  </Typography>
+                  <Grid container spacing={3}>
+                    {/* Delivery Method */}
+                    <Grid item xs={12} md={4}>
+                      <Box sx={{
+                        p: 3,
+                        backgroundColor: 'rgba(76, 175, 80, 0.04)',
+                        borderRadius: 2,
+                        border: '1px solid rgba(76, 175, 80, 0.12)',
+                        height: '100%'
+                      }}>
+                        <Typography variant="subtitle2" sx={{ 
+                          fontWeight: 600, 
+                          mb: 2, 
+                          color: 'success.main'
+                        }}>
+                          📦 Delivery Method
+                        </Typography>
+                        <FormControl fullWidth>
+                          <Select
+                            value={editInvoiceData.delivery_method || ''}
+                            onChange={(e) => setEditInvoiceData(prev => ({
+                              ...prev,
+                              delivery_method: e.target.value
+                            }))}
+                            variant="outlined"
+                            displayEmpty
+                            sx={{
+                              borderRadius: 2,
+                              backgroundColor: 'rgba(255, 255, 255, 0.8)'
+                            }}
+                          >
+                            <MenuItem value="">Select delivery method</MenuItem>
+                            {deliveryMethods.map((method) => (
+                              <MenuItem key={method.id} value={method.name}>
+                                {method.name}
+                                {method.description && ` - ${method.description}`}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Box>
+                    </Grid>
+                    
+                    {/* Shipping Address */}
+                    <Grid item xs={12} md={8}>
+                      <Box sx={{
+                        p: 3,
+                        backgroundColor: 'rgba(33, 150, 243, 0.04)',
+                        borderRadius: 2,
+                        border: '2px solid rgba(33, 150, 243, 0.2)',
+                        height: '100%'
+                      }}>
+                        <Typography variant="subtitle2" sx={{ 
+                          fontWeight: 600, 
+                          mb: 2, 
+                          color: 'info.main'
+                        }}>
+                          📍 Shipping Address
+                        </Typography>
+                        <TextField
+                          fullWidth
+                          value={editInvoiceData.shipping_address || ''}
+                          onChange={(e) => setEditInvoiceData(prev => ({
+                            ...prev,
+                            shipping_address: e.target.value
+                          }))}
+                          placeholder="Enter complete shipping address"
+                          multiline
+                          rows={4}
+                          variant="outlined"
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              borderRadius: 2,
+                              backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                              '& fieldset': {
+                                borderWidth: '2px',
+                                borderColor: 'rgba(33, 150, 243, 0.3)'
+                              },
+                              '&:hover fieldset': {
+                                borderColor: 'rgba(33, 150, 243, 0.5)'
+                              },
+                              '&.Mui-focused fieldset': {
+                                borderColor: 'info.main',
+                                borderWidth: '2px'
+                              }
+                            }
+                          }}
+                        />
+                      </Box>
+                    </Grid>
                   </Grid>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Due Date"
-                      type="date"
-                      value={editInvoiceData.due_date ? editInvoiceData.due_date.split('T')[0] : ''}
-                      onChange={(e) => setEditInvoiceData(prev => ({
-                        ...prev,
-                        due_date: e.target.value
-                      }))}
-                      InputLabelProps={{
-                        shrink: true,
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Delivery Date"
-                      type="date"
-                      value={editInvoiceData.delivery_date ? editInvoiceData.delivery_date.split('T')[0] : ''}
-                      onChange={(e) => setEditInvoiceData(prev => ({
-                        ...prev,
-                        delivery_date: e.target.value
-                      }))}
-                      InputLabelProps={{
-                        shrink: true,
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="PO Number"
-                      value={editInvoiceData.po_number || ''}
-                      onChange={(e) => setEditInvoiceData(prev => ({
-                        ...prev,
-                        po_number: e.target.value
-                      }))}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Delivery Method"
-                      value={editInvoiceData.delivery_method || ''}
-                      onChange={(e) => setEditInvoiceData(prev => ({
-                        ...prev,
-                        delivery_method: e.target.value
-                      }))}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Quantity"
-                      type="number"
-                      value={editInvoiceData.total_quantity || ''}
-                      InputProps={{
-                        readOnly: true,
-                        style: {
-                          backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                          color: 'rgba(0, 0, 0, 0.6)'
-                        }
-                      }}
-                      placeholder="Auto-calculated"
-                    />
-                  </Grid>
-                </Grid>
+                </Box>
 
                 {/* Order Items Section */}
-                <Divider sx={{ my: 3 }} />
+                <Divider sx={{ my: 4 }} />
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
                   <Typography variant="h6" sx={{ fontWeight: 600, color: 'warning.main' }}>
                     📦 Order Items
@@ -851,9 +1316,23 @@ function ProcessedInvoicePage() {
                         grid_style: '',
                         argon: ''
                       };
+                      
+                      const updatedItems = [...(editInvoiceData.order_items || []), newItem];
+                      
+                      // Recalculate total quantity
+                      const totalQuantity = updatedItems.reduce((total, item) => total + (parseInt(item.quantity) || 0), 0);
+                      
+                      // Recalculate WDGSP string and other totals
+                      const { wdgspString, hasSpecialOrder, glassOrderNeeded, itemOrderNeeded, processedItems } = categorizeItems(updatedItems, editInvoiceData.delivery_method);
+                      
                       setEditInvoiceData(prev => ({
                         ...prev,
-                        order_items: [...(prev.order_items || []), newItem]
+                        order_items: processedItems,
+                        total_quantity: totalQuantity,
+                        wdgsp_string: wdgspString,
+                        has_special_order: hasSpecialOrder,
+                        glass_order_needed: glassOrderNeeded,
+                        item_order_needed: itemOrderNeeded
                       }));
                     }}
                     variant="outlined"
@@ -886,37 +1365,97 @@ function ProcessedInvoicePage() {
                         {editInvoiceData.order_items.map((item, itemIndex) => (
                           <TableRow key={`edit-item-${item.item_name || 'unnamed'}-${itemIndex}`}>
                             <TableCell>
-                              <TextField
-                                size="small"
-                                value={item.item_name || ''}
-                                onChange={(e) => {
-                                  const updatedItems = [...editInvoiceData.order_items];
-                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], item_name: e.target.value };
-                                  setEditInvoiceData(prev => ({
-                                    ...prev,
-                                    order_items: updatedItems
-                                  }));
-                                }}
-                                placeholder="Item name"
-                                sx={{ width: 150 }}
-                              />
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Autocomplete
+                                  size="small"
+                                  options={itemOptions}
+                                  value={item.item_name || ''}
+                                  onChange={(event, newValue) => {
+                                    const updatedItems = [...editInvoiceData.order_items];
+                                    updatedItems[itemIndex] = { ...updatedItems[itemIndex], item_name: newValue || '' };
+                                    
+                                    // Recalculate total quantity and WDGSP string
+                                    const totalQuantity = updatedItems.reduce((total, item) => total + (parseInt(item.quantity) || 0), 0);
+                                    const { wdgspString, hasSpecialOrder, glassOrderNeeded, itemOrderNeeded, processedItems } = categorizeItems(updatedItems, editInvoiceData.delivery_method);
+                                    
+                                    setEditInvoiceData(prev => ({
+                                      ...prev,
+                                      order_items: processedItems,
+                                      total_quantity: totalQuantity,
+                                      wdgsp_string: wdgspString,
+                                      has_special_order: hasSpecialOrder,
+                                      glass_order_needed: glassOrderNeeded,
+                                      item_order_needed: itemOrderNeeded
+                                    }));
+                                  }}
+                                  freeSolo
+                                  autoComplete
+                                  autoHighlight
+                                  includeInputInList
+                                  filterSelectedOptions
+                                  disableClearable
+                                  getOptionLabel={(option) => option || ''}
+                                  isOptionEqualToValue={(option, value) => option === value}
+                                  renderInput={(params) => (
+                                    <TextField
+                                      {...params}
+                                      placeholder="Select or type item name"
+                                      size="small"
+                                    />
+                                  )}
+                                  sx={{ minWidth: 150 }}
+                                />
+                                {(() => {
+                                  const dbItem = getItemValidation(item.item_name);
+                                  const shouldShowWarning = !dbItem && item.item_name;
+                                  
+                                  return shouldShowWarning ? (
+                                    <Tooltip title={`Item "${item.item_name}" not found in database`}>
+                                      <Warning 
+                                        fontSize="small" 
+                                        sx={{ 
+                                          color: 'warning.main',
+                                          animation: 'pulse 2s infinite'
+                                        }} 
+                                      />
+                                    </Tooltip>
+                                  ) : null;
+                                })()}
+                              </Box>
                             </TableCell>
                             <TableCell>
                                <TextField
                                  size="small"
                                  type="number"
                                  value={item.quantity || ''}
-                                 InputProps={{
-                                   readOnly: true
+                                 onChange={(e) => {
+                                   const updatedItems = [...editInvoiceData.order_items];
+                                   updatedItems[itemIndex] = { ...updatedItems[itemIndex], quantity: parseInt(e.target.value) || 0 };
+                                   
+                                   // Recalculate total quantity
+                                   const totalQuantity = updatedItems.reduce((total, item) => total + (parseInt(item.quantity) || 0), 0);
+                                   
+                                   // Recalculate WDGSP string
+                                   const { wdgspString, hasSpecialOrder, glassOrderNeeded, itemOrderNeeded, processedItems } = categorizeItems(updatedItems, editInvoiceData.delivery_method);
+                                   
+                                   setEditInvoiceData(prev => ({
+                                     ...prev,
+                                     order_items: processedItems,
+                                     total_quantity: totalQuantity,
+                                     wdgsp_string: wdgspString,
+                                     has_special_order: hasSpecialOrder,
+                                     glass_order_needed: glassOrderNeeded,
+                                     item_order_needed: itemOrderNeeded
+                                   }));
                                  }}
-                                 placeholder="Auto-calculated"
+                                 placeholder="Quantity"
                                  sx={{ 
                                    width: 80,
                                    '& .MuiInputBase-input': {
-                                     backgroundColor: 'rgba(0,0,0,0.04)',
-                                     cursor: 'not-allowed'
+                                     textAlign: 'center'
                                    }
                                  }}
+                                 inputProps={{ min: 0 }}
                                />
                              </TableCell>
                             <TableCell>
@@ -968,20 +1507,61 @@ function ProcessedInvoicePage() {
                               />
                             </TableCell>
                             <TableCell>
-                              <TextField
-                                size="small"
-                                value={item.color || ''}
-                                onChange={(e) => {
-                                  const updatedItems = [...editInvoiceData.order_items];
-                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], color: e.target.value };
-                                  setEditInvoiceData(prev => ({
-                                    ...prev,
-                                    order_items: updatedItems
-                                  }));
-                                }}
-                                placeholder="Color"
-                                sx={{ width: 120 }}
-                              />
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Autocomplete
+                                  size="small"
+                                  freeSolo
+                                  autoComplete
+                                  autoHighlight
+                                  includeInputInList
+                                  filterSelectedOptions
+                                  disableClearable
+                                  options={colorOptions}
+                                  value={item.color || ''}
+                                  onChange={(event, newValue) => {
+                                    const updatedItems = [...editInvoiceData.order_items];
+                                    updatedItems[itemIndex] = { ...updatedItems[itemIndex], color: newValue || '' };
+                                    
+                                    // Recalculate total quantity and WDGSP string
+                                    const totalQuantity = updatedItems.reduce((total, item) => total + (parseInt(item.quantity) || 0), 0);
+                                    const { wdgspString, hasSpecialOrder, glassOrderNeeded, itemOrderNeeded, processedItems } = categorizeItems(updatedItems, editInvoiceData.delivery_method);
+                                    
+                                    setEditInvoiceData(prev => ({
+                                      ...prev,
+                                      order_items: processedItems,
+                                      total_quantity: totalQuantity,
+                                      wdgsp_string: wdgspString,
+                                      has_special_order: hasSpecialOrder,
+                                      glass_order_needed: glassOrderNeeded,
+                                      item_order_needed: itemOrderNeeded
+                                    }));
+                                  }}
+                                  getOptionLabel={(option) => option || ''}
+                                  isOptionEqualToValue={(option, value) => option === value}
+                                  renderInput={(params) => (
+                                    <TextField
+                                      {...params}
+                                      placeholder="Color"
+                                      sx={{ width: 120 }}
+                                    />
+                                  )}
+                                  sx={{ width: 120 }}
+                                />
+                                {(() => {
+                                  const dbColor = getColorValidation(item.color);
+                                  return !dbColor && item.color ? (
+                                    <Tooltip title={`Color "${item.color}" not found in database`}>
+                                      <Warning 
+                                        fontSize="small" 
+                                        sx={{ 
+                                          color: 'warning.main',
+                                          animation: 'pulse 2s infinite'
+                                        }} 
+                                      />
+                                    </Tooltip>
+                                  ) : null;
+                                })()}
+                              </Box>
                             </TableCell>
                             <TableCell>
                               <Select
@@ -1034,29 +1614,82 @@ function ProcessedInvoicePage() {
                               />
                             </TableCell>
                             <TableCell>
-                              <TextField
-                                size="small"
-                                value={item.frame || ''}
-                                onChange={(e) => {
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Autocomplete
+                                  size="small"
+                                  freeSolo
+                                  autoComplete
+                                  autoHighlight
+                                  includeInputInList
+                                  filterSelectedOptions
+                                  disableClearable
+                                  options={frameOptions}
+                                  value={item.frame || ''}
+                                  onChange={(event, newValue) => {
                                   const updatedItems = [...editInvoiceData.order_items];
-                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], frame: e.target.value };
+                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], frame: newValue || '' };
+                                  
+                                  // Recalculate total quantity and WDGSP string
+                                  const totalQuantity = updatedItems.reduce((total, item) => total + (parseInt(item.quantity) || 0), 0);
+                                  const { wdgspString, hasSpecialOrder, glassOrderNeeded, itemOrderNeeded, processedItems } = categorizeItems(updatedItems, editInvoiceData.delivery_method);
+                                  
                                   setEditInvoiceData(prev => ({
                                     ...prev,
-                                    order_items: updatedItems
+                                    order_items: processedItems, // Use processedItems with requiresSpecialOrder field
+                                    total_quantity: totalQuantity,
+                                    wdgsp_string: wdgspString,
+                                    has_special_order: hasSpecialOrder,
+                                    glass_order_needed: glassOrderNeeded,
+                                    item_order_needed: itemOrderNeeded
                                   }));
                                 }}
-                                placeholder="Frame"
-                                sx={{ width: 120 }}
-                              />
+                                  getOptionLabel={(option) => option || ''}
+                                  isOptionEqualToValue={(option, value) => option === value}
+                                  renderInput={(params) => (
+                                    <TextField
+                                      {...params}
+                                      placeholder="Frame"
+                                      sx={{ width: 120 }}
+                                    />
+                                  )}
+                                  sx={{ width: 120 }}
+                                />
+                                {(() => {
+                                  const dbFrameStyle = getFrameValidation(item.frame);
+                                  return !dbFrameStyle && item.frame ? (
+                                    <Tooltip title={`Frame style "${item.frame}" not found in database`}>
+                                      <Warning 
+                                        fontSize="small" 
+                                        sx={{ 
+                                          color: 'warning.main',
+                                          animation: 'pulse 2s infinite'
+                                        }} 
+                                      />
+                                    </Tooltip>
+                                  ) : null;
+                                })()}
+                              </Box>
                             </TableCell>
                             <TableCell sx={{ textAlign: 'center' }}>
                               <IconButton
                                 size="small"
                                 onClick={() => {
                                   const updatedItems = editInvoiceData.order_items.filter((_, index) => index !== itemIndex);
+                                  
+                                  // Recalculate total quantity
+                                  const totalQuantity = updatedItems.reduce((total, item) => total + (parseInt(item.quantity) || 0), 0);
+                                  
+                                  // Recalculate WDGSP string and other totals
+                                  const { wdgspString, hasSpecialOrder, glassOrderNeeded, itemOrderNeeded, processedItems } = categorizeItems(updatedItems, editInvoiceData.delivery_method);
+                                  
                                   setEditInvoiceData(prev => ({
                                     ...prev,
-                                    order_items: updatedItems
+                                    order_items: processedItems,
+                                    total_quantity: totalQuantity,
+                                    wdgsp_string: wdgspString,
+                                    has_special_order: hasSpecialOrder,
+                                    glass_order_needed: glassOrderNeeded,
+                                    item_order_needed: itemOrderNeeded
                                   }));
                                 }}
                                 sx={{ color: 'error.main' }}
@@ -1101,22 +1734,52 @@ function ProcessedInvoicePage() {
                variant="contained"
                onClick={async () => {
                  try {
-                   // Update the main invoice data
-                   const result = await updateInvoice(editInvoiceData.id, editInvoiceData);
+                   // Define the valid invoice table columns based on the schema
+                   const validInvoiceColumns = [
+                     'id', 'order_no', 'po_number', 'order_date', 'due_date', 
+                     'delivery_date', 'delivery_method', 'paid_status', 'shipping_address',
+                     'customer_name', 'customer_phone', 'customer_address',
+                     'total_quantity', 'wdgsp_string', 'has_special_order', 
+                     'glass_order_needed', 'item_order_needed', 'extraction_confidence', 
+                     'processing_status'
+                   ];
+                   
+                   // Filter editInvoiceData to only include valid invoice columns
+                   const invoiceDataOnly = Object.keys(editInvoiceData)
+                     .filter(key => validInvoiceColumns.includes(key))
+                     .reduce((obj, key) => {
+                       obj[key] = editInvoiceData[key];
+                       return obj;
+                     }, {});
+                   
+                   // Update the main invoice data (only valid columns)
+                   const result = await updateInvoice(editInvoiceData.id, invoiceDataOnly);
                    
                    if (result.success) {
-                     // Update the order items if they exist
+                     // Update the order items separately if they exist
                      if (editInvoiceData.order_items && editInvoiceData.order_items.length > 0) {
                        await updateOrderItems(editInvoiceData.id, editInvoiceData.order_items);
                      }
                      
-                     // Refresh the invoice list
-                     fetchInvoices();
+                     // Close dialog first to prevent state conflicts
                      setEditDialogOpen(false);
+                     
+                     // Add a small delay to ensure database transaction is committed
+                     await new Promise(resolve => setTimeout(resolve, 100));
+                     
+                     // Force refresh the invoice list
+                     await fetchInvoices();
+                     
                      // Update the selected invoice if detail dialog was open
                      if (selectedInvoice && selectedInvoice.id === editInvoiceData.id) {
-                       const updatedInvoice = await getInvoiceById(editInvoiceData.id);
-                       setSelectedInvoice(updatedInvoice);
+                       const updatedInvoiceResult = await getInvoiceById(editInvoiceData.id);
+                       if (updatedInvoiceResult.success) {
+                         const updatedInvoice = updatedInvoiceResult.data;
+                         // Process the order items to add requires_special_order field
+                         const { processedItems } = categorizeItems(updatedInvoice.order_items || [], updatedInvoice.delivery_method);
+                         updatedInvoice.order_items = processedItems;
+                         setSelectedInvoice(updatedInvoice);
+                       }
                      }
                    } else {
                      setError(result.message || 'Failed to update invoice');

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Typography, 
   Box, 
@@ -26,7 +26,8 @@ import {
   TextField,
   Select,
   MenuItem,
-  Autocomplete
+  Autocomplete,
+  CircularProgress
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -70,80 +71,163 @@ function InvoiceProcessorPage() {
   const [deliveryMethods, setDeliveryMethods] = useState([]);
   const [glassOptions, setGlassOptions] = useState([]);
   const [importing, setImporting] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
+  
+  // Memoize expensive calculations
+  const hasWarnings = useMemo(() => {
+    return processedResults.some(result => 
+      (result.unknownItems && result.unknownItems.length > 0) ||
+      (result.unknownColors && result.unknownColors.length > 0) ||
+      (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
+      (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
+      result.missingShippingAddress
+    );
+  }, [processedResults]);
+  
+  // Extract import handler with useCallback
+  const handleImportInvoices = useCallback(async () => {
+    setImporting(true);
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+      const errors = [];
+      
+      for (const result of processedResults) {
+        // Check if this invoice has any warnings that should prevent import
+        const hasWarnings = (
+          (result.unknownItems && result.unknownItems.length > 0) ||
+          (result.unknownColors && result.unknownColors.length > 0) ||
+          (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
+          (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
+          result.missingShippingAddress
+        );
+        
+        if (hasWarnings) {
+          errorCount++;
+          errors.push(`Invoice #${result.orderNo}: Contains unknown items/colors/frame styles/delivery methods`);
+          continue;
+        }
+        
+        try {
+          const saveResult = await saveInvoice(result);
+          if (saveResult.success) {
+            successCount++;
+          } else {
+            errorCount++;
+            errors.push(`Invoice #${result.orderNo}: ${saveResult.error}`);
+          }
+        } catch (error) {
+          errorCount++;
+          errors.push(`Invoice #${result.orderNo}: ${error.message}`);
+        }
+      }
+      
+      if (successCount > 0) {
+        alert(`Successfully imported ${successCount} invoice(s) to database.${errorCount > 0 ? ` ${errorCount} invoice(s) failed to import.` : ''}`);
+      } else {
+        alert(`Failed to import invoices. Please resolve all warnings before importing.`);
+      }
+      
+      if (errors.length > 0) {
+        console.error('Import errors:', errors);
+      }
+    } catch (error) {
+      console.error('Import operation failed:', error);
+      alert(`Import failed: ${error.message}`);
+    } finally {
+      setImporting(false);
+    }
+  }, [processedResults]);
+  
+  // Optimized database fetching with Promise.all
+  const fetchAllData = useCallback(async () => {
+    setDataLoading(true);
+    try {
+      const [itemsData, colorsData, frameStylesData, deliveryMethodsData, glassOptionsData] = await Promise.all([
+        supabase.from('items').select('*'),
+        supabase.from('item_colors').select('*'),
+        supabase.from('frame_styles').select('*'),
+        supabase.from('delivery_methods').select('*'),
+        supabase.from('glass_options').select('*')
+      ]);
+      
+      if (itemsData.error) throw itemsData.error;
+      if (colorsData.error) throw colorsData.error;
+      if (frameStylesData.error) throw frameStylesData.error;
+      if (deliveryMethodsData.error) throw deliveryMethodsData.error;
+      if (glassOptionsData.error) throw glassOptionsData.error;
+      
+      setItems(itemsData.data || []);
+      setColors(colorsData.data || []);
+      setFrameStyles(frameStylesData.data || []);
+      setDeliveryMethods(deliveryMethodsData.data || []);
+      setGlassOptions(glassOptionsData.data || []);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setDataLoading(false);
+    }
+  }, []);
   
   // Fetch items, colors, frame styles, delivery methods, and glass options from database on component mount
   useEffect(() => {
-    fetchItems();
-    fetchColors();
-    fetchFrameStyles();
-    fetchDeliveryMethods();
-    fetchGlassOptions();
-  }, []);
+    fetchAllData();
+  }, [fetchAllData]);
   
-  const fetchItems = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('items')
-        .select('*');
-      
-      if (error) throw error;
-      setItems(data || []);
-    } catch (error) {
-      console.error('Error fetching items:', error);
-    }
-  };
-  
-  const fetchColors = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('item_colors')
-        .select('*');
-      
-      if (error) throw error;
-      setColors(data || []);
-    } catch (error) {
-      console.error('Error fetching colors:', error);
-    }
-  };
-  
-  const fetchFrameStyles = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('frame_styles')
-        .select('*');
-      
-      if (error) throw error;
-      setFrameStyles(data || []);
-    } catch (error) {
-      console.error('Error fetching frame styles:', error);
-    }
-  };
-  
-  const fetchDeliveryMethods = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('delivery_methods')
-        .select('*');
-      
-      if (error) throw error;
-      setDeliveryMethods(data || []);
-    } catch (error) {
-      console.error('Error fetching delivery methods:', error);
-    }
-  };
+  // Memoized autocomplete options for better performance
+  const itemOptions = useMemo(() => 
+    [...new Set(items.map(dbItem => dbItem.name))].filter(name => name && name.trim()),
+    [items]
+  );
 
-  const fetchGlassOptions = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('glass_options')
-        .select('*');
-      
-      if (error) throw error;
-      setGlassOptions(data || []);
-    } catch (error) {
-      console.error('Error fetching glass options:', error);
-    }
-  };
+  const colorOptions = useMemo(() => 
+    colors.map(color => color.color_name).filter(name => name && name.trim()),
+    [colors]
+  );
+
+  const frameOptions = useMemo(() => 
+    frameStyles.map(frame => frame.style_name).filter(name => name && name.trim()),
+    [frameStyles]
+  );
+
+  const deliveryOptions = useMemo(() => 
+    deliveryMethods.map(method => method.name).filter(name => name && name.trim()),
+    [deliveryMethods]
+  );
+
+  // Optimized change handlers for edit dialog
+  const handleItemChange = useCallback((itemIndex, field, value) => {
+    setEditDialog(prev => ({
+      ...prev,
+      data: {
+        ...prev.data,
+        items: prev.data.items.map((item, index) => 
+          index === itemIndex ? { ...item, [field]: value } : item
+        )
+      }
+    }));
+  }, []);
+
+  // Memoized database lookups for validation
+  const getItemValidation = useCallback((itemName) => {
+    return items.find(dbItem => 
+      dbItem.name.toLowerCase() === (itemName || '').toLowerCase()
+    );
+  }, [items]);
+
+  const getColorValidation = useCallback((colorName) => {
+    return colors.find(color => 
+      color.color_name.toLowerCase() === (colorName || '').toLowerCase()
+    );
+  }, [colors]);
+
+  const getFrameValidation = useCallback((frameName) => {
+    return frameStyles.find(frame => 
+      frame.style_name.toLowerCase() === (frameName || '').toLowerCase()
+    );
+  }, [frameStyles]);
+  
+
   
   // Function to categorize items and count WDGSP
   const categorizeItems = (invoiceItems, deliveryMethod = '') => {
@@ -173,7 +257,10 @@ function InvoiceProcessorPage() {
       }
     }
     
-    invoiceItems.forEach(item => {
+    // Process each item and mark special order requirements
+    const processedItems = invoiceItems.map(item => {
+      let requiresSpecialOrder = false;
+      
       // Check item name
       const dbItem = items.find(dbItem => 
         dbItem.name.toLowerCase() === item.name.toLowerCase()
@@ -186,6 +273,7 @@ function InvoiceProcessorPage() {
         // Check if this item requires a special order
         if (dbItem.order_needed) {
           itemOrderNeeded = true;
+          requiresSpecialOrder = true;
           specialOrderItems.push({
             name: item.name,
             quantity: item.quantity,
@@ -225,6 +313,7 @@ function InvoiceProcessorPage() {
         
         if (matchingGlassOption) {
           glassOrderNeeded = true;
+          requiresSpecialOrder = true;
           specialOrderItems.push({
             name: item.name,
             quantity: item.quantity,
@@ -233,6 +322,12 @@ function InvoiceProcessorPage() {
           });
         }
       }
+      
+      // Return the item with the requiresSpecialOrder field set
+      return {
+        ...item,
+        requiresSpecialOrder
+      };
     });
     
     const hasSpecialOrder = glassOrderNeeded || itemOrderNeeded;
@@ -246,7 +341,8 @@ function InvoiceProcessorPage() {
       glassOrderNeeded,
       itemOrderNeeded,
       hasSpecialOrder,
-      specialOrderItems
+      specialOrderItems,
+      processedItems // Return the processed items with requiresSpecialOrder field
     };
   };
 
@@ -483,10 +579,10 @@ function InvoiceProcessorPage() {
           });
           
           const processedInvoices = Object.values(invoiceGroups).map(invoice => {
-            const { wdgspString, unknownItems, unknownColors, unknownFrameStyles, unknownDeliveryMethods, glassOrderNeeded, itemOrderNeeded, hasSpecialOrder, specialOrderItems } = categorizeItems(invoice.items || [], invoice.deliveryMethod);
+            const { wdgspString, unknownItems, unknownColors, unknownFrameStyles, unknownDeliveryMethods, glassOrderNeeded, itemOrderNeeded, hasSpecialOrder, specialOrderItems, processedItems } = categorizeItems(invoice.items || [], invoice.deliveryMethod);
             
             // Calculate total quantity for all items in this invoice
-            const totalQuantity = (invoice.items || []).reduce((sum, item) => {
+            const totalQuantity = (processedItems || []).reduce((sum, item) => {
               return sum + (parseInt(item.quantity) || 0);
             }, 0);
             
@@ -496,6 +592,7 @@ function InvoiceProcessorPage() {
             
             return {
               ...invoice,
+              items: processedItems, // Use the processed items with requiresSpecialOrder field
               wdgspString,
               unknownItems,
               unknownColors,
@@ -550,6 +647,30 @@ function InvoiceProcessorPage() {
   };
 
 
+
+  // Show loading state while fetching initial data
+  if (dataLoading) {
+    return (
+      <Box sx={{ 
+        maxWidth: '1200px', 
+        mx: 'auto', 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        minHeight: '60vh',
+        gap: 3
+      }}>
+        <CircularProgress size={60} thickness={4} />
+        <Typography variant="h6" color="text.secondary" sx={{ fontWeight: 500 }}>
+          Loading invoice processor...
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Fetching items, colors, frame styles, and delivery methods
+        </Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ maxWidth: '1200px', mx: 'auto' }}>
@@ -1283,108 +1404,20 @@ function InvoiceProcessorPage() {
             variant="contained"
             size="large"
             startIcon={<CloudUpload />}
-            onClick={async () => {
-              setImporting(true);
-              try {
-                let successCount = 0;
-                let errorCount = 0;
-                const errors = [];
-                
-                for (const result of processedResults) {
-                  // Check if this invoice has any warnings that should prevent import
-                  const hasWarnings = (
-                    (result.unknownItems && result.unknownItems.length > 0) ||
-                    (result.unknownColors && result.unknownColors.length > 0) ||
-                    (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
-                    (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-                    result.missingShippingAddress
-                  );
-                  
-                  if (hasWarnings) {
-                    errorCount++;
-                    errors.push(`Invoice #${result.orderNo}: Contains unknown items/colors/frame styles/delivery methods`);
-                    continue;
-                  }
-                  
-                  try {
-                    const saveResult = await saveInvoice(result);
-                    if (saveResult.success) {
-                      successCount++;
-                    } else {
-                      errorCount++;
-                      errors.push(`Invoice #${result.orderNo}: ${saveResult.error}`);
-                    }
-                  } catch (error) {
-                    errorCount++;
-                    errors.push(`Invoice #${result.orderNo}: ${error.message}`);
-                  }
-                }
-                
-                if (successCount > 0) {
-                  alert(`Successfully imported ${successCount} invoice(s) to database.${errorCount > 0 ? ` ${errorCount} invoice(s) failed to import.` : ''}`);
-                } else {
-                  alert(`Failed to import invoices. Please resolve all warnings before importing.`);
-                }
-                
-                if (errors.length > 0) {
-                  console.error('Import errors:', errors);
-                }
-              } catch (error) {
-                console.error('Import operation failed:', error);
-                alert(`Import failed: ${error.message}`);
-              } finally {
-                setImporting(false);
-              }
-            }}
-            disabled={processing || importing || processedResults.some(result => 
-              (result.unknownItems && result.unknownItems.length > 0) ||
-              (result.unknownColors && result.unknownColors.length > 0) ||
-              (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
-              (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-              result.missingShippingAddress
-            )}
+            onClick={handleImportInvoices}
+            disabled={processing || importing || hasWarnings}
             sx={{
               px: 6,
               py: 2,
               fontSize: '1.1rem',
               fontWeight: 600,
               borderRadius: 3,
-              background: processedResults.some(result => 
-                (result.unknownItems && result.unknownItems.length > 0) ||
-                (result.unknownColors && result.unknownColors.length > 0) ||
-                (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
-                (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-                result.missingShippingAddress
-              ) ? 'rgba(0, 0, 0, 0.12)' : 'linear-gradient(45deg, #4caf50 30%, #81c784 90%)',
-              boxShadow: processedResults.some(result => 
-                (result.unknownItems && result.unknownItems.length > 0) ||
-                (result.unknownColors && result.unknownColors.length > 0) ||
-                (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
-                (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-                result.missingShippingAddress
-              ) ? 'none' : '0 4px 20px rgba(76, 175, 80, 0.3)',
+              background: hasWarnings ? 'rgba(0, 0, 0, 0.12)' : 'linear-gradient(45deg, #4caf50 30%, #81c784 90%)',
+              boxShadow: hasWarnings ? 'none' : '0 4px 20px rgba(76, 175, 80, 0.3)',
               '&:hover': {
-                background: processedResults.some(result => 
-                  (result.unknownItems && result.unknownItems.length > 0) ||
-                  (result.unknownColors && result.unknownColors.length > 0) ||
-                  (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
-                  (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-                  result.missingShippingAddress
-                ) ? 'rgba(0, 0, 0, 0.12)' : 'linear-gradient(45deg, #388e3c 30%, #4caf50 90%)',
-                transform: processedResults.some(result => 
-                  (result.unknownItems && result.unknownItems.length > 0) ||
-                  (result.unknownColors && result.unknownColors.length > 0) ||
-                  (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
-                  (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-                  result.missingShippingAddress
-                ) ? 'none' : 'translateY(-2px)',
-                boxShadow: processedResults.some(result => 
-                  (result.unknownItems && result.unknownItems.length > 0) ||
-                  (result.unknownColors && result.unknownColors.length > 0) ||
-                  (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
-                  (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-                  result.missingShippingAddress
-                ) ? 'none' : '0 6px 25px rgba(76, 175, 80, 0.4)'
+                background: hasWarnings ? 'rgba(0, 0, 0, 0.12)' : 'linear-gradient(45deg, #388e3c 30%, #4caf50 90%)',
+                transform: hasWarnings ? 'none' : 'translateY(-2px)',
+                boxShadow: hasWarnings ? 'none' : '0 6px 25px rgba(76, 175, 80, 0.4)'
               },
               '&:disabled': {
                 background: 'rgba(0, 0, 0, 0.12)'
@@ -2130,16 +2163,9 @@ function InvoiceProcessorPage() {
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                               <Autocomplete
                                 size="small"
-                                options={[...new Set(items.map(dbItem => dbItem.name))].filter(name => name && name.trim())}
+                                options={itemOptions}
                                 value={item.name || ''}
-                                onChange={(event, newValue) => {
-                                  const updatedItems = [...editDialog.data.items];
-                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], name: newValue || '' };
-                                  setEditDialog(prev => ({
-                                    ...prev,
-                                    data: { ...prev.data, items: updatedItems }
-                                  }));
-                                }}
+                                onChange={(event, newValue) => handleItemChange(itemIndex, 'name', newValue || '')}
                                 freeSolo
                                 autoComplete
                                 autoHighlight
@@ -2158,11 +2184,9 @@ function InvoiceProcessorPage() {
                                 sx={{ minWidth: 200 }}
                               />
                               {(() => {
-                                const dbItem = items.find(dbItem => 
-                                  dbItem.name.toLowerCase() === (item.name || '').toLowerCase()
-                                );
+                                const dbItem = getItemValidation(item.name);
                                 const shouldShowWarning = !dbItem && item.name;
-                  
+  
                                 return shouldShowWarning ? (
                                   <Tooltip title={`Item "${item.name}" not found in database`}>
                                     <Warning 
@@ -2174,7 +2198,7 @@ function InvoiceProcessorPage() {
                                     />
                                   </Tooltip>
                                 ) : null;
-                              })()}
+                              })()} 
                             </Box>
                           </TableCell>
                           <TableCell>
@@ -2183,12 +2207,7 @@ function InvoiceProcessorPage() {
                               type="number"
                               value={item.quantity || ''}
                               onChange={(e) => {
-                                const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], quantity: parseInt(e.target.value) || 0 };
-                                setEditDialog(prev => ({
-                                  ...prev,
-                                  data: { ...prev.data, items: updatedItems }
-                                }));
+                                handleItemChange(itemIndex, 'quantity', parseInt(e.target.value) || 0);
                               }}
                               placeholder="Qty"
                                sx={{ width: 80 }}
@@ -2199,12 +2218,7 @@ function InvoiceProcessorPage() {
                               size="small"
                               value={item.width || ''}
                               onChange={(e) => {
-                                const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], width: e.target.value };
-                                setEditDialog(prev => ({
-                                  ...prev,
-                                  data: { ...prev.data, items: updatedItems }
-                                }));
+                                handleItemChange(itemIndex, 'width', e.target.value);
                               }}
                               placeholder="Width"
                               sx={{ width: 100 }}
@@ -2215,12 +2229,7 @@ function InvoiceProcessorPage() {
                               size="small"
                               value={item.height || ''}
                               onChange={(e) => {
-                                const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], height: e.target.value };
-                                setEditDialog(prev => ({
-                                  ...prev,
-                                  data: { ...prev.data, items: updatedItems }
-                                }));
+                                handleItemChange(itemIndex, 'height', e.target.value);
                               }}
                               placeholder="Height"
                               sx={{ width: 80 }}
@@ -2231,12 +2240,7 @@ function InvoiceProcessorPage() {
                               size="small"
                               value={item.additionalDimension || ''}
                               onChange={(e) => {
-                                const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], additionalDimension: e.target.value };
-                                setEditDialog(prev => ({
-                                  ...prev,
-                                  data: { ...prev.data, items: updatedItems }
-                                }));
+                                handleItemChange(itemIndex, 'additionalDimension', e.target.value);
                               }}
                               placeholder="P/V"
                               sx={{ width: 80 }}
@@ -2252,16 +2256,9 @@ function InvoiceProcessorPage() {
                                 includeInputInList
                                 filterSelectedOptions
                                 disableClearable
-                                options={colors.map(color => color.color_name).filter(name => name && name.trim())}
+                                options={colorOptions}
                                 value={item.color || ''}
-                                onChange={(event, newValue) => {
-                                  const updatedItems = [...editDialog.data.items];
-                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], color: newValue || '' };
-                                  setEditDialog(prev => ({
-                                    ...prev,
-                                    data: { ...prev.data, items: updatedItems }
-                                  }));
-                                }}
+                                onChange={(event, newValue) => handleItemChange(itemIndex, 'color', newValue || '')}
                                 getOptionLabel={(option) => option || ''}
                                 isOptionEqualToValue={(option, value) => option === value}
                                 renderInput={(params) => (
@@ -2274,9 +2271,7 @@ function InvoiceProcessorPage() {
                                 sx={{ width: 80 }}
                               />
                               {(() => {
-                                const dbColor = colors.find(dbColor => 
-                                  dbColor.color_name.toLowerCase() === (item.color || '').toLowerCase()
-                                );
+                                const dbColor = getColorValidation(item.color);
                                 return !dbColor && item.color ? (
                                   <Tooltip title={`Color "${item.color}" not found in database`}>
                                     <Warning 
@@ -2296,12 +2291,7 @@ function InvoiceProcessorPage() {
                               size="small"
                               value={item.argon === 'yes' || item.argon === 'YES' ? 'YES' : 'NONE'}
                               onChange={(e) => {
-                                const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], argon: e.target.value === 'YES' ? 'yes' : '' };
-                                setEditDialog(prev => ({
-                                  ...prev,
-                                  data: { ...prev.data, items: updatedItems }
-                                }));
+                                handleItemChange(itemIndex, 'argon', e.target.value === 'YES' ? 'yes' : '');
                               }}
                               sx={{ width: 80 }}
                             >
@@ -2314,12 +2304,7 @@ function InvoiceProcessorPage() {
                               size="small"
                               value={item.glassOption || ''}
                               onChange={(e) => {
-                                const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], glassOption: e.target.value };
-                                setEditDialog(prev => ({
-                                  ...prev,
-                                  data: { ...prev.data, items: updatedItems }
-                                }));
+                                handleItemChange(itemIndex, 'glassOption', e.target.value);
                               }}
                               placeholder="Glass option"
                               sx={{ width: 150 }}
@@ -2330,12 +2315,7 @@ function InvoiceProcessorPage() {
                               size="small"
                               value={item.gridStyle || ''}
                               onChange={(e) => {
-                                const updatedItems = [...editDialog.data.items];
-                                updatedItems[itemIndex] = { ...updatedItems[itemIndex], gridStyle: e.target.value };
-                                setEditDialog(prev => ({
-                                  ...prev,
-                                  data: { ...prev.data, items: updatedItems }
-                                }));
+                                handleItemChange(itemIndex, 'gridStyle', e.target.value);
                               }}
                               placeholder="Grid style"
                               sx={{ width: 120 }}
@@ -2351,16 +2331,9 @@ function InvoiceProcessorPage() {
                                 includeInputInList
                                 filterSelectedOptions
                                 disableClearable
-                                options={frameStyles.map(frame => frame.style_name).filter(name => name && name.trim())}
+                                options={frameOptions}
                                 value={item.frame || ''}
-                                onChange={(event, newValue) => {
-                                  const updatedItems = [...editDialog.data.items];
-                                  updatedItems[itemIndex] = { ...updatedItems[itemIndex], frame: newValue || '' };
-                                  setEditDialog(prev => ({
-                                    ...prev,
-                                    data: { ...prev.data, items: updatedItems }
-                                  }));
-                                }}
+                                onChange={(event, newValue) => handleItemChange(itemIndex, 'frame', newValue || '')}
                                 getOptionLabel={(option) => option || ''}
                                 isOptionEqualToValue={(option, value) => option === value}
                                 renderInput={(params) => (
@@ -2373,9 +2346,7 @@ function InvoiceProcessorPage() {
                                 sx={{ width: 120 }}
                               />
                               {(() => {
-                                const dbFrameStyle = frameStyles.find(dbFrame => 
-                                  dbFrame.style_name.toLowerCase() === (item.frame || '').toLowerCase()
-                                );
+                                const dbFrameStyle = getFrameValidation(item.frame);
                                 return !dbFrameStyle && item.frame ? (
                                   <Tooltip title={`Frame style "${item.frame}" not found in database`}>
                                     <Warning 

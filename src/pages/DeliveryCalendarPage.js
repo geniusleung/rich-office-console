@@ -1,212 +1,242 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
+  Container,
   Typography,
   Box,
-  Card,
-  CardContent,
   Grid,
-  Avatar,
-  Chip,
-  useTheme
+  Paper,
+  IconButton,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel
 } from '@mui/material';
 import {
-  LocalShipping as DeliveryIcon,
-  Schedule,
-  Route,
-  Inventory
+  ChevronLeft,
+  ChevronRight
 } from '@mui/icons-material';
 
 function DeliveryCalendarPage() {
-  const theme = useTheme();
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth());
 
-  const features = [
-    {
-      title: 'Delivery Scheduling',
-      description: 'Plan and organize delivery schedules',
-      icon: <Schedule />,
-      color: theme.palette.primary.main,
-      bgColor: 'rgba(30, 64, 175, 0.1)'
-    },
-    {
-      title: 'Route Optimization',
-      description: 'Optimize delivery routes and logistics',
-      icon: <Route />,
-      color: theme.palette.secondary.main,
-      bgColor: 'rgba(5, 150, 105, 0.1)'
-    },
-    {
-      title: 'Inventory Tracking',
-      description: 'Track shipments and inventory status',
-      icon: <Inventory />,
-      color: theme.palette.warning.main,
-      bgColor: 'rgba(217, 119, 6, 0.1)'
-    }
+  // Days of the week starting from Sunday
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  
+  // Month names
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
+  // Generate years for dropdown (current year ± 10 years)
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i);
+
+  // Get calendar data for the selected month
+  const getCalendarData = () => {
+    const firstDay = new Date(selectedYear, selectedMonth, 1);
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0);
+    const startDate = new Date(firstDay);
+    
+    // Adjust to start from Sunday
+    startDate.setDate(startDate.getDate() - firstDay.getDay());
+    
+    const calendar = [];
+    const current = new Date(startDate);
+    
+    // Generate 6 weeks (42 days) to ensure full calendar view
+    for (let week = 0; week < 6; week++) {
+      const weekDays = [];
+      for (let day = 0; day < 7; day++) {
+        weekDays.push(new Date(current));
+        current.setDate(current.getDate() + 1);
+      }
+      calendar.push(weekDays);
+    }
+    
+    return calendar;
+  };
+
+  const handlePreviousMonth = () => {
+    if (selectedMonth === 0) {
+      setSelectedMonth(11);
+      setSelectedYear(selectedYear - 1);
+    } else {
+      setSelectedMonth(selectedMonth - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (selectedMonth === 11) {
+      setSelectedMonth(0);
+      setSelectedYear(selectedYear + 1);
+    } else {
+      setSelectedMonth(selectedMonth + 1);
+    }
+  };
+
+  const handleYearChange = (event) => {
+    setSelectedYear(event.target.value);
+  };
+
+  const handleMonthChange = (event) => {
+    setSelectedMonth(event.target.value);
+  };
+
+  const isCurrentMonth = (date) => {
+    return date.getMonth() === selectedMonth;
+  };
+
+  const isToday = (date) => {
+    const today = new Date();
+    return date.toDateString() === today.toDateString();
+  };
+
+  const calendarData = getCalendarData();
+
   return (
-    <Box sx={{ maxWidth: '1200px', mx: 'auto' }}>
-      {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-          <Avatar 
-            sx={{ 
-              bgcolor: 'rgba(30, 64, 175, 0.1)',
-              color: theme.palette.primary.main,
-              mr: 2,
-              width: 48,
-              height: 48
-            }}
-          >
-            <DeliveryIcon />
-          </Avatar>
-          <Box>
-            <Typography 
-              variant="h3" 
-              component="h1" 
-              sx={{ 
-                fontWeight: 800,
-                color: theme.palette.text.primary,
-                mb: 0.5,
-                fontSize: { xs: '1.75rem', sm: '2.25rem', md: '2.5rem' }
-              }}
-            >
-              Delivery Calendar
-            </Typography>
-            <Chip 
-              label="Coming Soon"
-              size="small"
-              sx={{
-                bgcolor: 'rgba(217, 119, 6, 0.1)',
-                color: theme.palette.warning.main,
-                fontWeight: 600
-              }}
-            />
-          </Box>
-        </Box>
-        
-        <Typography 
-          variant="body1" 
-          color="text.secondary" 
-          sx={{ 
-            fontSize: '1rem',
-            lineHeight: 1.6,
-            maxWidth: '600px'
-          }}
-        >
-          Manage and track delivery schedules, logistics, and route optimization for efficient distribution management.
+    <Container maxWidth="xl" sx={{ mt: 1, mb: 1, height: 'calc(100vh - 10px)' }}>
+      <Box sx={{ mb: 1 }}>
+        <Typography variant="h4" component="h1">
+          Delivery Calendar
         </Typography>
       </Box>
-
-      {/* Features Grid */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {features.map((feature, index) => (
-          <Grid item xs={12} md={4} key={index}>
-            <Card 
-              sx={{ 
-                height: '100%',
-                transition: 'all 0.3s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-4px)',
-                  boxShadow: theme.shadows[8]
-                }
-              }}
-            >
-              <CardContent sx={{ p: 3, textAlign: 'center' }}>
-                <Avatar 
-                  sx={{ 
-                    bgcolor: feature.bgColor,
-                    color: feature.color,
-                    width: 64,
-                    height: 64,
-                    mx: 'auto',
-                    mb: 2
-                  }}
-                >
-                  {feature.icon}
-                </Avatar>
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
-                    fontWeight: 600,
-                    color: theme.palette.text.primary,
-                    mb: 1
-                  }}
-                >
-                  {feature.title}
-                </Typography>
-                <Typography 
-                  variant="body2" 
-                  color="text.secondary"
-                  sx={{ lineHeight: 1.6 }}
-                >
-                  {feature.description}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* Main Content Card */}
-      <Card>
-        <CardContent sx={{ p: 4, textAlign: 'center' }}>
-          <Avatar 
-            sx={{ 
-              bgcolor: 'rgba(30, 64, 175, 0.1)',
-              color: theme.palette.primary.main,
-              width: 80,
-              height: 80,
-              mx: 'auto',
-              mb: 3
-            }}
-          >
-            <DeliveryIcon sx={{ fontSize: 40 }} />
-          </Avatar>
-          
-          <Typography 
-            variant="h4" 
-            sx={{ 
-              fontWeight: 700,
-              color: theme.palette.text.primary,
-              mb: 2
-            }}
-          >
-            Delivery Calendar
-          </Typography>
-          
-          <Typography 
-            variant="h6" 
-            color="text.secondary" 
-            sx={{ 
-              mb: 3,
-              maxWidth: '500px',
-              mx: 'auto',
-              lineHeight: 1.6
-            }}
-          >
-            Advanced delivery scheduling and logistics management features are currently under development.
-          </Typography>
-          
-          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Chip 
-              label="Delivery Scheduling"
-              variant="outlined"
-              sx={{ borderColor: theme.palette.primary.main, color: theme.palette.primary.main }}
-            />
-            <Chip 
-              label="Route Optimization"
-              variant="outlined"
-              sx={{ borderColor: theme.palette.secondary.main, color: theme.palette.secondary.main }}
-            />
-            <Chip 
-              label="Inventory Tracking"
-              variant="outlined"
-              sx={{ borderColor: theme.palette.warning.main, color: theme.palette.warning.main }}
-            />
+      
+      {/* Calendar Navigation */}
+      <Paper sx={{ p: 2, height: 'calc(100% - 5px)', display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexShrink: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <IconButton onClick={handlePreviousMonth}>
+              <ChevronLeft />
+            </IconButton>
+            
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Month</InputLabel>
+              <Select
+                value={selectedMonth}
+                label="Month"
+                onChange={handleMonthChange}
+              >
+                {monthNames.map((month, index) => (
+                  <MenuItem key={index} value={index}>
+                    {month}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <InputLabel>Year</InputLabel>
+              <Select
+                value={selectedYear}
+                label="Year"
+                onChange={handleYearChange}
+              >
+                {Array.from({ length: 21 }, (_, i) => currentYear - 10 + i).map((year) => (
+                  <MenuItem key={year} value={year}>
+                    {year}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            <IconButton onClick={handleNextMonth}>
+              <ChevronRight />
+            </IconButton>
           </Box>
-        </CardContent>
-      </Card>
-    </Box>
+          
+          <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+            {monthNames[selectedMonth]} {selectedYear}
+          </Typography>
+        </Box>
+        
+        {/* Calendar Grid */}
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {/* Days of Week Header */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, mb: 1, flexShrink: 0 }}>
+            {daysOfWeek.map((day) => (
+              <Box
+                key={day}
+                sx={{
+                  p: 1,
+                  textAlign: 'center',
+                  fontWeight: 'bold',
+                  backgroundColor: 'primary.main',
+                  color: 'primary.contrastText',
+                  borderRadius: 1,
+                  height: 40,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                {day}
+              </Box>
+            ))}
+          </Box>
+          
+          {/* Calendar Days */}
+          <Box sx={{ 
+            flex: 1, 
+            display: 'grid', 
+            gridTemplateRows: 'repeat(6, 6fr)', 
+            gap: 1,
+            minHeight: 0
+          }}>
+            {calendarData.map((week, weekIndex) => (
+              <Box 
+                key={weekIndex} 
+                sx={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(7, 1fr)', 
+                  gap: 1,
+                  height: '100%'
+                }}
+              >
+                {week.map((date, dayIndex) => (
+                  <Box
+                    key={dayIndex}
+                    sx={{
+                      p: 1,
+                      textAlign: 'left',
+                      border: isToday(date) ? '2px solid' : '1px solid #e0e0e0',
+                      borderColor: isToday(date) ? 'primary.main' : '#e0e0e0',
+                      borderRadius: 1,
+                      backgroundColor: isCurrentMonth(date) 
+                        ? 'background.paper'
+                        : 'grey.100',
+                      color: isCurrentMonth(date) 
+                        ? 'text.primary'
+                        : 'text.disabled',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      height: '100%'
+                    }}
+                  >
+                    <Typography 
+                      variant="body2" 
+                      sx={{ 
+                        fontWeight: isToday(date) ? 'bold' : 'normal',
+                        mb: 1
+                      }}
+                    >
+                      {date.getDate()}
+                    </Typography>
+                    {/* Space for future content */}
+                    <Box sx={{ flex: 1 }}>
+                      {/* Delivery items will go here */}
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      </Paper>
+    </Container>
   );
 }
 

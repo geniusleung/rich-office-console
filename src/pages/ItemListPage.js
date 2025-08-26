@@ -444,18 +444,17 @@ function ItemListPage() {
       {/* Add/Edit Item Dialog */}
       <Dialog 
         open={openDialog} 
-        onClose={() => setOpenDialog(false)} 
-        maxWidth="sm" 
+        onClose={() => setOpenDialog(false)}
+        maxWidth="sm"
         fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: 3,
-            boxShadow: '0 10px 40px rgba(0,0,0,0.1)'
-          }
-        }}
+        disablePortal={false}
+        hideBackdrop={false}
+        disableEnforceFocus={false}
+        disableAutoFocus={false}
+        disableRestoreFocus={false}
       >
         <DialogTitle sx={{ pb: 1 }}>
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
             {editingItem ? 'Edit Item' : 'Add New Item'}
           </Typography>
           <Typography variant="body2" color="text.secondary">

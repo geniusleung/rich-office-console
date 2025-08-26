@@ -54,7 +54,7 @@ function MainLayout() {
     { text: 'Home', icon: <Home />, path: '/' },
     { text: 'Invoice Processor', icon: <Receipt />, path: '/invoice-processor' },
     { text: 'Processed Invoice', icon: <Assignment />, path: '/processed-invoice' },
-    { text: 'Production Calendar', icon: <CalendarToday />, path: '/production-calendar' },
+    { text: 'Production Plan Calendar', icon: <CalendarToday />, path: '/production-calendar' },
     { text: 'Delivery Calendar', icon: <LocalShipping />, path: '/delivery-calendar' },
     { text: 'Settings', icon: <Settings />, path: '/settings' },
   ];
