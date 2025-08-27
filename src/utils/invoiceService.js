@@ -6,6 +6,81 @@ import { supabase } from './supabaseClient';
  */
 
 /**
+ * Utility function to expand items by quantity into individual unit records
+ * @param {Array} items - Array of order items
+ * @returns {Array} - Array of individual unit records
+ */
+export const expandItemsByQuantity = (items) => {
+  const expandedItems = [];
+  
+  items.forEach((item, itemIndex) => {
+    const quantity = parseInt(item.quantity) || 1;
+    
+    if (quantity === 1) {
+      // Single unit - add as is with unit_index 1
+      expandedItems.push({
+        ...item,
+        unit_index: 1,
+        parent_item_id: null,
+        original_quantity: quantity
+      });
+    } else {
+      // Multiple units - create individual records
+      for (let unitIndex = 1; unitIndex <= quantity; unitIndex++) {
+        expandedItems.push({
+          ...item,
+          quantity: 1, // Each unit has quantity 1
+          unit_index: unitIndex,
+          parent_item_id: null, // Will be set after first unit is saved
+          original_quantity: quantity
+        });
+      }
+    }
+  });
+  
+  return expandedItems;
+};
+
+/**
+ * Utility function to collapse individual unit records back to quantity-based items for display
+ * @param {Array} unitRecords - Array of individual unit records
+ * @returns {Array} - Array of collapsed items with quantities
+ */
+export const collapseUnitRecords = (unitRecords) => {
+  const itemGroups = {};
+  
+  unitRecords.forEach(unit => {
+    // Create a key based on item properties (excluding unit-specific fields)
+    const key = JSON.stringify({
+      item_name: unit.item_name,
+      width: unit.width,
+      height: unit.height,
+      additional_dimension: unit.additional_dimension,
+      color: unit.color,
+      frame: unit.frame,
+      glass_option: unit.glass_option,
+      grid_style: unit.grid_style,
+      argon: unit.argon
+    });
+    
+    if (!itemGroups[key]) {
+      itemGroups[key] = {
+        ...unit,
+        quantity: 0,
+        units: [],
+        batch_assignments: []
+      };
+    }
+    
+    itemGroups[key].quantity += 1;
+    itemGroups[key].units.push(unit);
+    itemGroups[key].batch_assignments.push(unit.batch_assigned || '');
+  });
+  
+  return Object.values(itemGroups);
+};
+
+/**
  * Save a processed invoice to the database
  * @param {Object} invoiceData - The processed invoice data
  * @returns {Promise<Object>} - The saved invoice with ID
@@ -53,12 +128,17 @@ export const saveInvoice = async (invoiceData) => {
       throw new Error(`Failed to save invoice: ${invoiceError.message}`);
     }
 
-    // Save order items
+    // Save order items as individual units
     if (invoiceData.items && invoiceData.items.length > 0) {
-      const orderItems = invoiceData.items.map(item => ({
+      // Expand items by quantity to create individual unit records
+      const expandedItems = expandItemsByQuantity(invoiceData.items);
+      
+      const orderItems = expandedItems.map(item => ({
         invoice_id: invoice.id,
         item_name: item.name,
-        quantity: item.quantity || 0,
+        quantity: 1, // Each record represents one unit
+        unit_index: item.unit_index,
+        parent_item_id: item.parent_item_id,
         width: item.width,
         height: item.height,
         additional_dimension: item.additionalDimension,
@@ -67,6 +147,7 @@ export const saveInvoice = async (invoiceData) => {
         glass_option: item.glassOption,
         grid_style: item.gridStyle,
         argon: item.argon,
+        batch_assigned: '', // Empty initially, will be assigned later
         is_unknown_item: item.isUnknownItem || false,
         is_unknown_color: item.isUnknownColor || false,
         is_unknown_frame: item.isUnknownFrame || false,
@@ -135,12 +216,30 @@ export const getInvoices = async (options = {}) => {
         customer_name,
         order_date,
         delivery_date,
+        due_date,
         delivery_method,
         paid_status,
         total_quantity,
         wdgsp_string,
         has_special_order,
-        created_at
+        special_order_completed,
+        created_at,
+        order_items (
+          id,
+          item_name,
+          quantity,
+          width,
+          height,
+          additional_dimension,
+          color,
+          argon,
+          glass_option,
+          grid_style,
+          frame,
+          batch_assigned,
+          unit_index,
+          parent_item_id
+        )
       `)
       .range(offset, offset + limit - 1)
       .order(orderBy, { ascending });
@@ -284,7 +383,7 @@ export const deleteInvoice = async (invoiceId) => {
 /**
  * Update order items for an invoice
  * @param {string} invoiceId - The invoice ID
- * @param {Array} items - Array of order items
+ * @param {Array} items - Array of order items (can be collapsed or expanded)
  * @returns {Promise<Object>} - Update result
  */
 export const updateOrderItems = async (invoiceId, items) => {
@@ -301,10 +400,22 @@ export const updateOrderItems = async (invoiceId, items) => {
 
     // Then, insert new order items
     if (items && items.length > 0) {
-      const orderItems = items.map(item => ({
+      // Check if items are already expanded (have unit_index) or need expansion
+      let expandedItems;
+      if (items.some(item => item.unit_index !== undefined)) {
+        // Items are already expanded individual units
+        expandedItems = items;
+      } else {
+        // Items need to be expanded by quantity
+        expandedItems = expandItemsByQuantity(items);
+      }
+      
+      const orderItems = expandedItems.map(item => ({
         invoice_id: invoiceId,
         item_name: item.name || item.item_name,
-        quantity: parseInt(item.quantity) || 0,
+        quantity: 1, // Each record represents one unit
+        unit_index: item.unit_index || 1,
+        parent_item_id: item.parent_item_id || null,
         width: item.width,
         height: item.height,
         additional_dimension: item.additionalDimension || item.additional_dimension,
@@ -313,6 +424,7 @@ export const updateOrderItems = async (invoiceId, items) => {
         glass_option: item.glassOption || item.glass_option,
         grid_style: item.gridStyle || item.grid_style,
         argon: item.argon,
+        batch_assigned: item.batchAssigned || item.batch_assigned || '',
         is_unknown_item: item.isUnknownItem || false,
         is_unknown_color: item.isUnknownColor || false,
         is_unknown_frame: item.isUnknownFrame || false,
@@ -384,6 +496,105 @@ export const getSpecialOrderInvoices = async () => {
       success: false,
       error: error.message,
       message: 'Failed to fetch special order invoices'
+    };
+  }
+};
+
+// Get invoices grouped by due date for production calendar
+export const getInvoicesByDueDate = async (year, month) => {
+  try {
+    // Create start and end dates for the month
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0); // Last day of the month
+    
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from('invoices')
+      .select('due_date')
+      .gte('due_date', startDateStr)
+      .lte('due_date', endDateStr)
+      .not('due_date', 'is', null);
+
+    if (error) {
+      console.error('Error fetching invoices by due date:', error);
+      throw error;
+    }
+
+    // Group invoices by due date
+    const groupedInvoices = {};
+    data.forEach(invoice => {
+      const dueDate = invoice.due_date;
+      if (dueDate) {
+        groupedInvoices[dueDate] = (groupedInvoices[dueDate] || 0) + 1;
+      }
+    });
+
+    return groupedInvoices;
+  } catch (error) {
+    console.error('Error in getInvoicesByDueDate:', error);
+    throw error;
+  }
+};
+
+// Remove the getInvoicesForDate function (lines 541-582)
+export const getInvoicesForDate = async (date) => {
+  try {
+    const dateStr = date.toISOString().split('T')[0];
+    
+    const { data, error } = await supabase
+      .from('invoices')
+      .select(`
+        id,
+        order_no,
+        customer_name,
+        order_date,
+        due_date,
+        delivery_date,
+        delivery_method,
+        paid_status,
+        total_quantity,
+        wdgsp_string,
+        has_special_order,
+        special_order_completed,
+        created_at,
+        order_items (
+          id,
+          item_name,
+          quantity,
+          width,
+          height,
+          additional_dimension,
+          color,
+          argon,
+          glass_option,
+          grid_style,
+          frame,
+          batch_assigned,
+          unit_index,
+          parent_item_id
+        )
+      `)
+      .eq('due_date', dateStr)
+      .order('order_no', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching invoices for date:', error);
+      throw error;
+    }
+
+    return {
+      success: true,
+      data: data || [],
+      message: 'Invoices retrieved successfully'
+    };
+  } catch (error) {
+    console.error('Error in getInvoicesForDate:', error);
+    return {
+      success: false,
+      error: error.message,
+      message: 'Failed to fetch invoices for date'
     };
   }
 };
