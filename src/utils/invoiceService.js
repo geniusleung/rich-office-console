@@ -598,3 +598,56 @@ export const getInvoicesForDate = async (date) => {
     };
   }
 };
+
+/**
+ * Check if order numbers already exist in the database
+ * @param {Array} orderNumbers - Array of order numbers to check
+ * @returns {Promise<Object>} - Object with existing order numbers
+ */
+export const checkExistingOrderNumbers = async (orderNumbers) => {
+  try {
+    if (!orderNumbers || orderNumbers.length === 0) {
+      return {
+        success: true,
+        data: [],
+        message: 'No order numbers to check'
+      };
+    }
+
+    // Filter out null/undefined/empty order numbers
+    const validOrderNumbers = orderNumbers.filter(orderNo => 
+      orderNo && orderNo.toString().trim() !== ''
+    );
+
+    if (validOrderNumbers.length === 0) {
+      return {
+        success: true,
+        data: [],
+        message: 'No valid order numbers to check'
+      };
+    }
+
+    const { data, error } = await supabase
+      .from('invoices')
+      .select('order_no, customer_name, created_at')
+      .in('order_no', validOrderNumbers);
+
+    if (error) {
+      throw new Error(`Failed to check existing order numbers: ${error.message}`);
+    }
+
+    return {
+      success: true,
+      data: data || [],
+      message: 'Order numbers checked successfully'
+    };
+
+  } catch (error) {
+    console.error('Error checking existing order numbers:', error);
+    return {
+      success: false,
+      error: error.message,
+      message: 'Failed to check existing order numbers'
+    };
+  }
+};

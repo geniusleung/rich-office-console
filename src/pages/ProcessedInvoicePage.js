@@ -46,7 +46,8 @@ import {
   Remove as RemoveIcon,
   Warning
 } from '@mui/icons-material';
-import { getInvoices, getInvoiceById, deleteInvoice, updateInvoice, updateOrderItems, collapseUnitRecords } from '../utils/invoiceService';
+// Remove collapseUnitRecords import
+import { getInvoices, getInvoiceById, deleteInvoice, updateInvoice, updateOrderItems } from '../utils/invoiceService';
 import { supabase } from '../utils/supabaseClient';
 import InvoiceDetailDialog from '../components/InvoiceDetailDialog';
 import InvoiceEditDialog from '../components/InvoiceEditDialog';
@@ -405,12 +406,9 @@ function ProcessedInvoicePage() {
       if (result.success) {
         const invoiceData = result.data;
         
-        // Collapse individual unit records for display
-        const collapsedItems = collapseUnitRecords(invoiceData.order_items || []);
-        
-        // Process the collapsed items to add requiresSpecialOrder field
+        // Process the individual unit records directly (no collapsing)
         const { processedItems } = categorizeItems(
-          collapsedItems, 
+          invoiceData.order_items || [], 
           invoiceData.delivery_method
         );
         

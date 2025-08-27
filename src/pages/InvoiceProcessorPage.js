@@ -44,7 +44,12 @@ import {
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { supabase } from '../utils/supabaseClient';
-import { saveInvoice } from '../utils/invoiceService';
+import { 
+  saveInvoice, 
+  expandItemsByQuantity, 
+  collapseUnitRecords,
+  checkExistingOrderNumbers
+} from '../utils/invoiceService';
 
 // Add pulse animation styles
 const pulseAnimation = `
@@ -64,6 +69,7 @@ function InvoiceProcessorPage() {
   const [errors, setErrors] = useState([]);
   const [previewDialog, setPreviewDialog] = useState({ open: false, data: null });
   const [editDialog, setEditDialog] = useState({ open: false, data: null, index: null });
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState({ open: false, index: null, data: null });
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0, fileName: '' });
   const [items, setItems] = useState([]);
   const [colors, setColors] = useState([]);
@@ -80,7 +86,8 @@ function InvoiceProcessorPage() {
       (result.unknownColors && result.unknownColors.length > 0) ||
       (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
       (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-      result.missingShippingAddress
+      result.missingShippingAddress ||
+      result.isDuplicate
     );
   }, [processedResults]);
   
@@ -99,12 +106,17 @@ function InvoiceProcessorPage() {
           (result.unknownColors && result.unknownColors.length > 0) ||
           (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
           (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-          result.missingShippingAddress
+          result.missingShippingAddress ||
+          result.isDuplicate
         );
         
         if (hasWarnings) {
           errorCount++;
-          errors.push(`Invoice #${result.orderNo}: Contains unknown items/colors/frame styles/delivery methods`);
+          if (result.isDuplicate) {
+            errors.push(`Invoice #${result.orderNo}: Duplicate order number already exists in database`);
+          } else {
+            errors.push(`Invoice #${result.orderNo}: Contains unknown items/colors/frame styles/delivery methods`);
+          }
           continue;
         }
         
@@ -423,6 +435,27 @@ function InvoiceProcessorPage() {
         }
       }
       
+      // Check for duplicate order numbers
+      if (allResults.length > 0) {
+        const orderNumbers = allResults.map(result => result.orderNo).filter(Boolean);
+        const duplicateCheck = await checkExistingOrderNumbers(orderNumbers);
+        
+        if (duplicateCheck.success) {
+          const existingOrderNumbers = new Set(duplicateCheck.data.map(item => item.order_no));
+          
+          // Add isDuplicate flag to each result
+          allResults.forEach(result => {
+            result.isDuplicate = existingOrderNumbers.has(result.orderNo);
+          });
+        } else {
+          console.error('Failed to check for duplicates:', duplicateCheck.error);
+          // Continue without duplicate detection if check fails
+          allResults.forEach(result => {
+            result.isDuplicate = false;
+          });
+        }
+      }
+      
       setProcessedResults(allResults);
       setProcessingComplete(true);
       
@@ -623,6 +656,21 @@ function InvoiceProcessorPage() {
 
   const handlePreview = (data) => {
     setPreviewDialog({ open: true, data });
+  };
+
+  const handleDeleteClick = (index, data) => {
+    setDeleteConfirmDialog({ open: true, index, data });
+  };
+
+  const handleDeleteConfirm = () => {
+    const { index } = deleteConfirmDialog;
+    const updatedResults = processedResults.filter((_, i) => i !== index);
+    setProcessedResults(updatedResults);
+    setDeleteConfirmDialog({ open: false, index: null, data: null });
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmDialog({ open: false, index: null, data: null });
   };
 
 
@@ -1059,7 +1107,8 @@ function InvoiceProcessorPage() {
                                           (result.unknownColors && result.unknownColors.length > 0) ||
                                           (result.unknownFrameStyles && result.unknownFrameStyles.length > 0) ||
                                           (result.unknownDeliveryMethods && result.unknownDeliveryMethods.length > 0) ||
-                                          result.missingShippingAddress;
+                                          result.missingShippingAddress ||
+                                          result.isDuplicate;
                   return (
                     <TableRow 
                     key={`${result.orderNo || 'unknown'}-${index}`} 
@@ -1080,6 +1129,12 @@ function InvoiceProcessorPage() {
                           {hasUnknownItems && (
                             <Tooltip title={
                                <Box>
+                                 {result.isDuplicate && (
+                                   <Box sx={{ mb: 1 }}>
+                                     <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'error.main' }}>Duplicate Order Number:</Typography>
+                                     <Typography variant="body2">Order #{result.orderNo} already exists in database</Typography>
+                                   </Box>
+                                 )}
                                  {result.unknownItems?.length > 0 && (
                                    <Box sx={{ mb: 1 }}>
                                      <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'warning.main' }}>Unknown Items:</Typography>
@@ -1115,7 +1170,7 @@ function InvoiceProcessorPage() {
                               <Warning 
                                 fontSize="small" 
                                 sx={{ 
-                                  color: 'warning.main',
+                                  color: result.isDuplicate ? 'error.main' : 'warning.main',
                                   animation: 'pulse 2s infinite'
                                 }} 
                               />
@@ -1187,6 +1242,22 @@ function InvoiceProcessorPage() {
                               </IconButton>
                             </Tooltip>
                           )}
+                          <Tooltip title="Delete Row">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleDeleteClick(index, result)}
+                              sx={{
+                                backgroundColor: 'error.light',
+                                color: 'error.main',
+                                '&:hover': {
+                                  backgroundColor: 'error.main',
+                                  color: 'white'
+                                }
+                              }}
+                            >
+                              <Delete fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </Box>
                       </TableCell>
                     </TableRow>
@@ -1329,6 +1400,33 @@ function InvoiceProcessorPage() {
                         Delivery method: {result.deliveryMethod} - Shipping address required
                       </Typography>
 
+                    </Box>
+                  ))
+                }
+              </Alert>
+            </Box>
+          )}
+          
+          {/* Duplicate Order Numbers Warning */}
+          {processedResults.some(result => result.isDuplicate) && (
+            <Box sx={{ mt: 3, mb: 2 }}>
+              <Alert severity="error" sx={{ borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                  🔄 Duplicate Order Numbers Found
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  The following invoices have order numbers that already exist in the database. These will be blocked from import:
+                </Typography>
+                {processedResults
+                  .filter(result => result.isDuplicate)
+                  .map((result, index) => (
+                    <Box key={index} sx={{ mb: 2, p: 2, backgroundColor: 'rgba(244,67,54,0.1)', borderRadius: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                        Invoice #{result.orderNo} - {result.customerInfo?.name}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        This order number already exists in your database
+                      </Typography>
                     </Box>
                   ))
                 }
@@ -1848,6 +1946,53 @@ function InvoiceProcessorPage() {
             }}
           >
             Edit Invoice
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmDialog.open}
+        onClose={handleDeleteCancel}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>
+          Confirm Delete
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            Are you sure you want to delete this invoice record?
+          </Typography>
+          {deleteConfirmDialog.data && (
+            <Box sx={{ p: 2, backgroundColor: 'grey.50', borderRadius: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Order No:</strong> {deleteConfirmDialog.data.orderNo || 'N/A'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Customer:</strong> {deleteConfirmDialog.data.customerInfo?.name || 'N/A'}
+              </Typography>
+            </Box>
+          )}
+          <Typography variant="body2" color="error" sx={{ mt: 2 }}>
+            This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button 
+            onClick={handleDeleteCancel}
+            variant="outlined"
+            sx={{ borderRadius: 2 }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleDeleteConfirm}
+            variant="contained"
+            color="error"
+            sx={{ borderRadius: 2 }}
+          >
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

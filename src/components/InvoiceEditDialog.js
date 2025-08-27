@@ -732,7 +732,13 @@ const InvoiceEditDialog = ({
                           size="small"
                           type="number"
                           value={item.quantity || ''}
-                          onChange={(e) => handleItemChange(itemIndex, 'quantity', e.target.value)}
+                          InputProps={{
+                            readOnly: true,
+                            style: {
+                              backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                              color: 'rgba(0, 0, 0, 0.6)'
+                            }
+                          }}
                           placeholder="Qty"
                           sx={{ width: 70 }}
                         />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Container,
   Typography,
@@ -33,15 +33,19 @@ import {
   Close as CloseIcon,
   Visibility as VisibilityIcon
 } from '@mui/icons-material';
-import { getInvoicesByDueDate, getInvoicesForDate, getInvoices, getInvoiceById, collapseUnitRecords } from '../utils/invoiceService';
+// Remove collapseUnitRecords import
+import { getInvoicesByDueDate, getInvoicesForDate, getInvoices, getInvoiceById, updateInvoice, updateOrderItems } from '../utils/invoiceService';
+import { supabase } from '../utils/supabaseClient';
 import InvoiceDetailDialog from '../components/InvoiceDetailDialog';
+import InvoiceEditDialog from '../components/InvoiceEditDialog';
 
 function ProductionCalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth());
   const [invoiceData, setInvoiceData] = useState({});
-  const [loading, setLoading] = useState(false);
+  const [wdgsData, setWdgsData] = useState({}); // Add new state for WDGS totals
+  const [loading, setLoading] = useState(true);
   
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -53,6 +57,18 @@ function ProductionCalendarPage() {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  
+  // Edit dialog states
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editInvoiceData, setEditInvoiceData] = useState(null);
+  
+  // Add missing data states for InvoiceEditDialog
+  const [deliveryMethods, setDeliveryMethods] = useState([]);
+  const [items, setItems] = useState([]);
+  const [colors, setColors] = useState([]);
+  const [frameStyles, setFrameStyles] = useState([]);
+  const [glassOptions, setGlassOptions] = useState([]);
+  const [dataLoading, setDataLoading] = useState(true);
   
   // Days of the week starting from Sunday
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -72,13 +88,277 @@ function ProductionCalendarPage() {
     if (!dateString) return 'N/A';
     try {
       const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid Date';
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
-        month: 'short',
-        day: 'numeric'
+        month: '2-digit',
+        day: '2-digit'
       });
     } catch (error) {
       return 'Invalid Date';
+    }
+  };
+
+  // Add this helper function for batch assignment status
+  const getBatchAssignmentStatus = (orderItems) => {
+    if (!orderItems || orderItems.length === 0) {
+      return { allAssigned: false, assignedCount: 0, totalCount: 0 };
+    }
+    
+    const assignedCount = orderItems.filter(item => 
+      item.batch_assigned && item.batch_assigned !== 'N/A' && item.batch_assigned.trim() !== ''
+    ).length;
+    
+    return {
+      allAssigned: assignedCount === orderItems.length,
+      assignedCount,
+      totalCount: orderItems.length
+    };
+  };
+
+  // Fetch delivery methods from database
+  const fetchDeliveryMethods = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('delivery_methods')
+        .select('*')
+        .order('name');
+      
+      if (error) {
+        console.error('Error fetching delivery methods:', error);
+      } else {
+        setDeliveryMethods(data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching delivery methods:', error);
+    }
+  };
+
+  // Add data fetching functions
+  const fetchAllData = useCallback(async () => {
+    setDataLoading(true);
+    try {
+      const [itemsData, colorsData, frameStylesData, glassOptionsData] = await Promise.all([
+        supabase.from('items').select('*'),
+        supabase.from('item_colors').select('*'),
+        supabase.from('frame_styles').select('*'),
+        supabase.from('glass_options').select('*')
+      ]);
+      
+      if (itemsData.error) throw itemsData.error;
+      if (colorsData.error) throw colorsData.error;
+      if (frameStylesData.error) throw frameStylesData.error;
+      if (glassOptionsData.error) throw glassOptionsData.error;
+      
+      setItems(itemsData.data || []);
+      setColors(colorsData.data || []);
+      setFrameStyles(frameStylesData.data || []);
+      setGlassOptions(glassOptionsData.data || []);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setDataLoading(false);
+    }
+  }, []);
+
+  // Add categorizeItems function (around line 88, after other state declarations)
+  const categorizeItems = useCallback((invoiceItems, deliveryMethod = '') => {
+    const counts = { Window: 0, Door: 0, Glass: 0, Screen: 0, Part: 0 };
+    const unknownItems = [];
+    const unknownColors = [];
+    const unknownFrameStyles = [];
+    const unknownDeliveryMethods = [];
+    let glassOrderNeeded = false;
+    let itemOrderNeeded = false;
+    const specialOrderItems = [];
+    
+    // Check delivery method
+    if (!deliveryMethod || !deliveryMethod.trim()) {
+      const emptyMethodLabel = 'Empty/Missing';
+      if (!unknownDeliveryMethods.includes(emptyMethodLabel)) {
+        unknownDeliveryMethods.push(emptyMethodLabel);
+      }
+    } else {
+      const dbDeliveryMethod = deliveryMethods.find(dbMethod => 
+        dbMethod.name.toLowerCase() === deliveryMethod.toLowerCase()
+      );
+      if (!dbDeliveryMethod && !unknownDeliveryMethods.includes(deliveryMethod)) {
+        unknownDeliveryMethods.push(deliveryMethod);
+      }
+    }
+    
+    // Process each item
+    const processedItems = invoiceItems.map(item => {
+      let requiresSpecialOrder = false;
+      
+      // Check item name
+      const dbItem = items.find(dbItem => 
+        dbItem.name.toLowerCase() === (item.item_name || item.name || '').toLowerCase()
+      );
+      
+      if (dbItem && dbItem.item_type !== 'Other') {
+        const quantity = parseInt(item.quantity) || 1;
+        counts[dbItem.item_type] = (counts[dbItem.item_type] || 0) + quantity;
+        
+        if (dbItem.order_needed) {
+          itemOrderNeeded = true;
+          requiresSpecialOrder = true;
+          specialOrderItems.push({
+            name: item.item_name || item.name,
+            quantity: item.quantity,
+            type: 'item'
+          });
+        }
+      } else if (!dbItem && (item.item_name || item.name)) {
+        unknownItems.push(item.item_name || item.name);
+      }
+      
+      // Check color
+      if (item.color && item.color.trim()) {
+        const dbColor = colors.find(dbColor => 
+          dbColor.color_name.toLowerCase() === item.color.toLowerCase()
+        );
+        if (!dbColor && !unknownColors.includes(item.color)) {
+          unknownColors.push(item.color);
+        }
+      }
+      
+      // Check frame style
+      if (item.frame && item.frame.trim()) {
+        const dbFrameStyle = frameStyles.find(dbFrame => 
+          dbFrame.style_name.toLowerCase() === item.frame.toLowerCase()
+        );
+        if (!dbFrameStyle && !unknownFrameStyles.includes(item.frame)) {
+          unknownFrameStyles.push(item.frame);
+        }
+      }
+      
+      // Check glass option
+      if ((item.glass_option || item.glassOption) && (item.glass_option || item.glassOption).trim()) {
+        const glassOptionText = (item.glass_option || item.glassOption).toLowerCase();
+        const matchingGlassOption = glassOptions.find(dbGlass => 
+          glassOptionText.includes(dbGlass.glass_type.toLowerCase()) && dbGlass.order_needed
+        );
+        
+        if (matchingGlassOption) {
+          glassOrderNeeded = true;
+          requiresSpecialOrder = true;
+          specialOrderItems.push({
+            name: item.item_name || item.name,
+            quantity: item.quantity,
+            glassOption: item.glass_option || item.glassOption,
+            type: 'glass'
+          });
+        }
+      }
+      
+      return {
+        ...item,
+        requiresSpecialOrder
+      };
+    });
+    
+    const hasSpecialOrder = glassOrderNeeded || itemOrderNeeded;
+    
+    return {
+      wdgspString: `${counts.Window}/${counts.Door}/${counts.Glass}/${counts.Screen}/${counts.Part}`,
+      unknownItems,
+      unknownColors,
+      unknownFrameStyles,
+      unknownDeliveryMethods,
+      glassOrderNeeded,
+      itemOrderNeeded,
+      hasSpecialOrder,
+      specialOrderItems,
+      processedItems
+    };
+  }, [items, colors, frameStyles, glassOptions, deliveryMethods]);
+
+  // Add memoized options (around line 160, after categorizeItems function)
+  const itemOptions = useMemo(() => 
+    [...new Set(items.map(dbItem => dbItem.name))].filter(name => name && name.trim()),
+    [items]
+  );
+
+  const colorOptions = useMemo(() => 
+    [...new Set(colors.map(color => color.color_name))].filter(name => name && name.trim()),
+    [colors]
+  );
+
+  const frameOptions = useMemo(() => 
+    [...new Set(frameStyles.map(frame => frame.style_name))].filter(name => name && name.trim()),
+    [frameStyles]
+  );
+
+  // Add function to parse WDGS string and return totals
+  const parseWdgsString = (wdgspString) => {
+    if (!wdgspString || wdgspString === 'N/A') {
+      return { W: 0, D: 0, G: 0, S: 0, P: 0, total: 0 };
+    }
+    
+    const parts = wdgspString.split('/');
+    if (parts.length !== 5) {
+      return { W: 0, D: 0, G: 0, S: 0, P: 0, total: 0 };
+    }
+    
+    const W = parseInt(parts[0]) || 0;
+    const D = parseInt(parts[1]) || 0;
+    const G = parseInt(parts[2]) || 0;
+    const S = parseInt(parts[3]) || 0;
+    const P = parseInt(parts[4]) || 0;
+    
+    return {
+      W, D, G, S, P,
+      total: W + D + G + S + P
+    };
+  };
+
+  // Add function to get WDGS totals by due date
+  const getWdgsTotalsByDueDate = async (year, month) => {
+    try {
+      // Create start and end dates for the month
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0); // Last day of the month
+      
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('due_date, wdgsp_string')
+        .gte('due_date', startDateStr)
+        .lte('due_date', endDateStr)
+        .not('due_date', 'is', null)
+        .not('wdgsp_string', 'is', null);
+
+      if (error) {
+        console.error('Error fetching WDGS data by due date:', error);
+        throw error;
+      }
+
+      // Group and sum WDGS by due date
+      const groupedWdgs = {};
+      data.forEach(invoice => {
+        const dueDate = invoice.due_date;
+        if (dueDate && invoice.wdgsp_string) {
+          if (!groupedWdgs[dueDate]) {
+            groupedWdgs[dueDate] = { W: 0, D: 0, G: 0, S: 0, P: 0, total: 0 };
+          }
+          
+          const parsed = parseWdgsString(invoice.wdgsp_string);
+          groupedWdgs[dueDate].W += parsed.W;
+          groupedWdgs[dueDate].D += parsed.D;
+          groupedWdgs[dueDate].G += parsed.G;
+          groupedWdgs[dueDate].S += parsed.S;
+          groupedWdgs[dueDate].P += parsed.P;
+          groupedWdgs[dueDate].total += parsed.total;
+        }
+      });
+
+      return groupedWdgs;
+    } catch (error) {
+      console.error('Error in getWdgsTotalsByDueDate:', error);
+      throw error;
     }
   };
 
@@ -87,11 +367,16 @@ function ProductionCalendarPage() {
     const fetchInvoiceData = async () => {
       setLoading(true);
       try {
-        const data = await getInvoicesByDueDate(selectedYear, selectedMonth + 1);
-        setInvoiceData(data);
+        const [invoiceCountData, wdgsData] = await Promise.all([
+          getInvoicesByDueDate(selectedYear, selectedMonth + 1),
+          getWdgsTotalsByDueDate(selectedYear, selectedMonth + 1)
+        ]);
+        setInvoiceData(invoiceCountData);
+        setWdgsData(wdgsData);
       } catch (error) {
         console.error('Error fetching invoice data:', error);
         setInvoiceData({});
+        setWdgsData({});
       } finally {
         setLoading(false);
       }
@@ -100,10 +385,22 @@ function ProductionCalendarPage() {
     fetchInvoiceData();
   }, [selectedYear, selectedMonth]);
 
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchAllData();
+    fetchDeliveryMethods();
+  }, [fetchAllData]);
+
   // Get invoice count for a specific date
   const getInvoiceCount = (date) => {
     const dateStr = date.toISOString().split('T')[0];
     return invoiceData[dateStr] || 0;
+  };
+  
+  // Add this new function
+  const getWdgsTotals = (date) => {
+    const dateStr = date.toISOString().split('T')[0];
+    return wdgsData[dateStr] || { W: 0, D: 0, G: 0, S: 0, P: 0, total: 0 };
   };
 
   // Handle date click
@@ -216,27 +513,27 @@ function ProductionCalendarPage() {
     setDateInvoices([]);
   };
 
-  // Add these three helper functions here:
-  const categorizeItems = (items, deliveryMethod) => {
-    const processedItems = items.map(item => ({
-      ...item,
-      requiresSpecialOrder: false // This would need proper logic based on your business rules
-    }));
-    return { processedItems };
-  };
+  // Remove these duplicate functions:
+  // const categorizeItems = (items, deliveryMethod) => {
+  //   const processedItems = items.map(item => ({
+  //     ...item,
+  //     requiresSpecialOrder: false
+  //   }));
+  //   return { processedItems };
+  // };
 
-  const getBatchAssignmentStatus = (items) => {
-    if (!items || items.length === 0) {
-      return { assignedCount: 0, totalCount: 0, allAssigned: false };
-    }
-    const assignedCount = items.filter(item => item.batch_assigned && item.batch_assigned !== 'N/A').length;
-    const totalCount = items.length;
-    return {
-      assignedCount,
-      totalCount,
-      allAssigned: assignedCount === totalCount
-    };
-  };
+  // const getBatchAssignmentStatus = (items) => {
+  //   if (!items || items.length === 0) {
+  //     return { assignedCount: 0, totalCount: 0, allAssigned: false };
+  //   }
+  //   const assignedCount = items.filter(item => item.batch_assigned && item.batch_assigned !== 'N/A').length;
+  //   const totalCount = items.length;
+  //   return {
+  //     assignedCount,
+  //     totalCount,
+  //     allAssigned: assignedCount === totalCount
+  //   };
+  // };
 
   const handleViewDetails = async (invoiceId) => {
     setDetailLoading(true);
@@ -246,10 +543,8 @@ function ProductionCalendarPage() {
       const result = await getInvoiceById(invoiceId);
       if (result.success) {
         const invoiceData = result.data;
-        // Collapse individual unit records for display
-        const collapsedItems = collapseUnitRecords(invoiceData.order_items || []);
-        // Process the collapsed items to add requiresSpecialOrder field
-        const { processedItems } = categorizeItems(collapsedItems, invoiceData.delivery_method);
+        // Process the individual unit records directly (no collapsing)
+        const { processedItems } = categorizeItems(invoiceData.order_items || [], invoiceData.delivery_method);
         // Update the invoice data with processed items
         invoiceData.order_items = processedItems;
         setSelectedInvoice(invoiceData);
@@ -263,30 +558,98 @@ function ProductionCalendarPage() {
     }
   };
 
-  const calendarData = getCalendarData();
-
-  return (
-    <Container maxWidth="xl" sx={{ mt: 1, mb: 1, height: 'calc(100vh - 10px)' }}>
-      <Box sx={{ mb: 1 }}>
-        <Typography variant="h4" component="h1">
-          Production Plan Calendar
-        </Typography>
-      </Box>
+  // Add the onSave function before the return statement (around line 550)
+  const onSave = async (updatedInvoice, updatedItems) => {
+    try {
+      // Filter out invalid columns for invoice update
+      const validInvoiceColumns = [
+        'customer_name', 'customer_phone', 'customer_email', 'customer_address',
+        'order_no', 'order_date', 'delivery_date', 'delivery_method',
+        'shipping_address', 'notes', 'total_quantity', 'wdgsp_string',
+        'has_special_order', 'glass_order_needed', 'item_order_needed',
+        'paid_status', 'special_order_completed', 'due_date', 'po_number'
+      ];
       
-      {/* Calendar Navigation */}
-      <Paper sx={{ p: 2, height: 'calc(100% - 5px)', display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexShrink: 0 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <IconButton onClick={handlePreviousMonth}>
-              <ChevronLeft />
-            </IconButton>
-            
+      const filteredInvoice = Object.keys(updatedInvoice)
+        .filter(key => validInvoiceColumns.includes(key))
+        .reduce((obj, key) => {
+          obj[key] = updatedInvoice[key];
+          return obj;
+        }, {});
+      
+      // Update invoice
+      await updateInvoice(updatedInvoice.id, filteredInvoice);
+      
+      // Update order items
+      if (updatedItems && updatedItems.length > 0) {
+        await updateOrderItems(updatedInvoice.id, updatedItems);
+      }
+      
+      // Refresh both invoice count and WDGS data
+      const [invoiceCountData, wdgsDataResult] = await Promise.all([
+        getInvoicesByDueDate(selectedYear, selectedMonth + 1),
+        getWdgsTotalsByDueDate(selectedYear, selectedMonth + 1)
+      ]);
+      setInvoiceData(invoiceCountData);
+      setWdgsData(wdgsDataResult);
+      
+      // Refresh the date dialog data if it's open
+      if (dialogOpen && selectedDate) {
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        const result = await getInvoices({
+          limit: 100,
+          offset: 0
+        });
+        
+        if (result.success) {
+          const filteredInvoices = result.data.filter(invoice => {
+            const invoiceDueDate = invoice.due_date ? invoice.due_date.split('T')[0] : null;
+            return invoiceDueDate === dateStr;
+          });
+          setDateInvoices(filteredInvoices);
+        }
+      }
+      
+      // Refresh the invoice detail data
+      await handleViewDetails(editInvoiceData.id);
+      
+      setEditDialogOpen(false);
+      setEditInvoiceData(null);
+    } catch (error) {
+      console.error('Error updating invoice:', error);
+    }
+  };
+  
+  // Add the missing return statement and JSX content
+  return (
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+      {/* Calendar header and controls */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h4" component="h1">
+            Production Calendar
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Year</InputLabel>
+              <Select
+                value={selectedYear}
+                label="Year"
+                onChange={(e) => setSelectedYear(e.target.value)}
+              >
+                {years.map((year) => (
+                  <MenuItem key={year} value={year}>
+                    {year}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <FormControl size="small" sx={{ minWidth: 120 }}>
               <InputLabel>Month</InputLabel>
               <Select
                 value={selectedMonth}
                 label="Month"
-                onChange={handleMonthChange}
+                onChange={(e) => setSelectedMonth(e.target.value)}
               >
                 {monthNames.map((month, index) => (
                   <MenuItem key={index} value={index}>
@@ -295,77 +658,82 @@ function ProductionCalendarPage() {
                 ))}
               </Select>
             </FormControl>
-            
-            <FormControl size="small" sx={{ minWidth: 100 }}>
-              <InputLabel>Year</InputLabel>
-              <Select
-                value={selectedYear}
-                label="Year"
-                onChange={handleYearChange}
-              >
-                {Array.from({ length: 21 }, (_, i) => currentYear - 10 + i).map((year) => (
-                  <MenuItem key={year} value={year}>
-                    {year}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            
-            <IconButton onClick={handleNextMonth}>
-              <ChevronRight />
-            </IconButton>
           </Box>
-          
-          <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-            {monthNames[selectedMonth]} {selectedYear}
-          </Typography>
         </Box>
         
-        {/* Calendar Grid */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          {/* Days of Week Header */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, mb: 1, flexShrink: 0 }}>
-            {daysOfWeek.map((day) => (
-              <Box
-                key={day}
-                sx={{
-                  p: 1,
-                  textAlign: 'center',
-                  fontWeight: 'bold',
-                  backgroundColor: '#FFD700',
-                  color: '#000000',
-                  borderRadius: 1,
-                  height: 40,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                {day}
-              </Box>
-            ))}
-          </Box>
-          
-          {/* Calendar Days */}
-          <Box sx={{ 
-            flex: 1, 
-            display: 'grid', 
-            gridTemplateRows: 'repeat(6, 6fr)', 
-            gap: 1,
-            minHeight: 0
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <IconButton onClick={() => {
+            if (selectedMonth === 0) {
+              setSelectedMonth(11);
+              setSelectedYear(selectedYear - 1);
+            } else {
+              setSelectedMonth(selectedMonth - 1);
+            }
           }}>
-            {calendarData.map((week, weekIndex) => (
+            <ChevronLeft />
+          </IconButton>
+          
+          <Typography variant="h5" component="h2">
+            {monthNames[selectedMonth]} {selectedYear}
+          </Typography>
+          
+          <IconButton onClick={() => {
+            if (selectedMonth === 11) {
+              setSelectedMonth(0);
+              setSelectedYear(selectedYear + 1);
+            } else {
+              setSelectedMonth(selectedMonth + 1);
+            }
+          }}>
+            <ChevronRight />
+          </IconButton>
+        </Box>
+  
+        {/* Calendar grid */}
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <Box sx={{ width: '100%' }}>
+            {/* Days of week header */}
+            <Box sx={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(7, 1fr)', 
+              gap: 1,
+              mb: 1
+            }}>
+              {daysOfWeek.map((day) => (
+                <Typography 
+                  key={day} 
+                  variant="subtitle2" 
+                  sx={{ 
+                    textAlign: 'center', 
+                    fontWeight: 'bold',
+                    p: 1,
+                    backgroundColor: 'grey.100',
+                    borderRadius: 1
+                  }}
+                >
+                  {day}
+                </Typography>
+              ))}
+            </Box>
+            
+            {/* Calendar weeks */}
+            {getCalendarData().map((week, weekIndex) => (
               <Box 
-                key={weekIndex} 
+                key={weekIndex}
                 sx={{ 
                   display: 'grid', 
                   gridTemplateColumns: 'repeat(7, 1fr)', 
                   gap: 1,
-                  height: '100%'
+                  mb: 1
                 }}
               >
                 {week.map((date, dayIndex) => {
                   const invoiceCount = getInvoiceCount(date);
+                  const wdgsTotals = getWdgsTotals(date);
                   return (
                     <Box
                       key={dayIndex}
@@ -386,7 +754,7 @@ function ProductionCalendarPage() {
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
-                        height: '100%',
+                        height: 120,
                         minHeight: 80,
                         '&:hover': invoiceCount > 0 && isCurrentMonth(date) ? {
                           backgroundColor: 'action.hover'
@@ -404,16 +772,50 @@ function ProductionCalendarPage() {
                       </Typography>
                       
                       {invoiceCount > 0 && isCurrentMonth(date) && (
-                        <Chip
-                          label={invoiceCount}
-                          size="small"
-                          color="primary"
-                          sx={{
-                            height: 20,
-                            fontSize: '0.75rem',
-                            alignSelf: 'flex-end'
-                          }}
-                        />
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'flex-end' }}>
+                          <Chip
+                            label={invoiceCount}
+                            size="small"
+                            color="primary"
+                            sx={{ fontSize: '0.75rem', height: 20 }}
+                          />
+                          {(wdgsTotals.W > 0 || wdgsTotals.D > 0 || wdgsTotals.G > 0 || wdgsTotals.S > 0) && (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, alignItems: 'flex-end' }}>
+                              {wdgsTotals.W > 0 && (
+                                <Chip
+                                  label={`W: ${wdgsTotals.W}`}
+                                  size="small"
+                                  color="info"
+                                  sx={{ fontSize: '0.6rem', height: 16 }}
+                                />
+                              )}
+                              {wdgsTotals.D > 0 && (
+                                <Chip
+                                  label={`D: ${wdgsTotals.D}`}
+                                  size="small"
+                                  color="warning"
+                                  sx={{ fontSize: '0.6rem', height: 16 }}
+                                />
+                              )}
+                              {wdgsTotals.G > 0 && (
+                                <Chip
+                                  label={`G: ${wdgsTotals.G}`}
+                                  size="small"
+                                  color="success"
+                                  sx={{ fontSize: '0.6rem', height: 16 }}
+                                />
+                              )}
+                              {wdgsTotals.S > 0 && (
+                                <Chip
+                                  label={`S: ${wdgsTotals.S}`}
+                                  size="small"
+                                  color="secondary"
+                                  sx={{ fontSize: '0.6rem', height: 16 }}
+                                />
+                              )}
+                            </Box>
+                          )}
+                        </Box>
                       )}
                     </Box>
                   );
@@ -421,20 +823,20 @@ function ProductionCalendarPage() {
               </Box>
             ))}
           </Box>
-        </Box>
+        )}
       </Paper>
-
-      {/* Date Invoices Dialog - THIS WAS MISSING! */}
+  
+      {/* Date Dialog */}
       <Dialog
         open={dialogOpen}
         onClose={handleCloseDialog}
-        maxWidth="md"
+        maxWidth="lg"
         fullWidth
       >
         <DialogTitle>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">
-              Invoices for {selectedDate && selectedDate.toLocaleDateString()}
+              Invoices for {selectedDate && formatDate(selectedDate.toISOString().split('T')[0])}
             </Typography>
             <IconButton onClick={handleCloseDialog}>
               <CloseIcon />
@@ -443,7 +845,7 @@ function ProductionCalendarPage() {
         </DialogTitle>
         <DialogContent>
           {dialogLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
               <CircularProgress />
             </Box>
           ) : (
@@ -456,37 +858,63 @@ function ProductionCalendarPage() {
                     <TableCell>Due Date</TableCell>
                     <TableCell>Delivery Method</TableCell>
                     <TableCell>Total Quantity</TableCell>
+                    <TableCell>WDGSP</TableCell>
+                    <TableCell>Special Order</TableCell>
+                    <TableCell>Batch Status</TableCell>
                     <TableCell>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {dateInvoices.length > 0 ? (
-                    dateInvoices.map((invoice) => (
-                      <TableRow key={invoice.id}>
-                        <TableCell>{invoice.order_no || 'N/A'}</TableCell>
-                        <TableCell>{invoice.customer_name || 'N/A'}</TableCell>
-                        <TableCell>{formatDate(invoice.due_date)}</TableCell>
-                        <TableCell>{invoice.delivery_method || 'N/A'}</TableCell>
-                        <TableCell>{invoice.total_quantity || 0}</TableCell>
-                        <TableCell>
-                          <Tooltip title="View Details">
-                            <IconButton
-                              onClick={() => handleViewDetails(invoice.id)}
-                              color="primary"
+                    dateInvoices.map((invoice) => {
+                      const batchStatus = getBatchAssignmentStatus(invoice.order_items || []);
+                      return (
+                        <TableRow key={invoice.id}>
+                          <TableCell>{invoice.order_no}</TableCell>
+                          <TableCell>{invoice.customer_name}</TableCell>
+                          <TableCell>{formatDate(invoice.due_date)}</TableCell>
+                          <TableCell>{invoice.delivery_method}</TableCell>
+                          <TableCell>{invoice.total_quantity}</TableCell>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                              {invoice.wdgsp_string || 'N/A'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            {invoice.has_special_order ? (
+                              <Chip 
+                                label="Yes" 
+                                color={invoice.special_order_completed === 'completed' ? 'success' : 'warning'} 
+                                size="small" 
+                              />
+                            ) : (
+                              <Chip label="No" color="default" size="small" />
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={batchStatus.allAssigned ? 'Complete' : batchStatus.assignedCount > 0 ? 'Partial' : 'None'}
+                              color={batchStatus.allAssigned ? 'success' : batchStatus.assignedCount > 0 ? 'warning' : 'error'}
                               size="small"
-                            >
-                              <VisibilityIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title="View Details">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleViewDetails(invoice.id)}
+                              >
+                                <VisibilityIcon />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={6} align="center">
-                        <Typography color="text.secondary">
-                          No invoices found for this date
-                        </Typography>
+                      <TableCell colSpan={9} align="center">
+                        No invoices found for this date
                       </TableCell>
                     </TableRow>
                   )}
@@ -499,15 +927,38 @@ function ProductionCalendarPage() {
           <Button onClick={handleCloseDialog}>Close</Button>
         </DialogActions>
       </Dialog>
-
-      {/* Replace the entire Invoice Detail Dialog (lines 488-827) with: */}
+  
+      {/* Invoice Detail Dialog */}
       <InvoiceDetailDialog
         open={detailDialogOpen}
         onClose={() => setDetailDialogOpen(false)}
-        invoice={selectedInvoice}
+        selectedInvoice={selectedInvoice}
         loading={detailLoading}
-        showEditButton={false}
+        showEditButton={true}
+        onEdit={() => {
+          setEditInvoiceData(selectedInvoice);
+          setEditDialogOpen(true);
+          setDetailDialogOpen(false);
+        }}
         getBatchAssignmentStatus={getBatchAssignmentStatus}
+      />
+  
+      {/* Invoice Edit Dialog */}
+      <InvoiceEditDialog
+        open={editDialogOpen}
+        onClose={() => {
+          setEditDialogOpen(false);
+          setEditInvoiceData(null);
+        }}
+        invoiceData={editInvoiceData}
+        onSave={onSave}
+        onInvoiceDataChange={(updatedData) => setEditInvoiceData(updatedData)}
+        deliveryMethods={deliveryMethods}
+        itemOptions={itemOptions}
+        colorOptions={colorOptions}
+        frameOptions={frameOptions}
+        categorizeItems={categorizeItems}
+        loading={dataLoading}
       />
     </Container>
   );
