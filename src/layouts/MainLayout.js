@@ -50,12 +50,15 @@ function MainLayout() {
     return location.pathname === path;
   };
 
-  const menuItems = [
+  const mainMenuItems = [
     { text: 'Home', icon: <Home />, path: '/' },
     { text: 'Invoice Processor', icon: <Receipt />, path: '/invoice-processor' },
-    { text: 'Processed Invoice', icon: <Assignment />, path: '/processed-invoice' },
     { text: 'Production Plan Calendar', icon: <CalendarToday />, path: '/production-calendar' },
     { text: 'Delivery Calendar', icon: <LocalShipping />, path: '/delivery-calendar' },
+  ];
+
+  const bottomMenuItems = [
+    { text: 'Processed Invoice', icon: <Assignment />, path: '/processed-invoice' },
     { text: 'Settings', icon: <Settings />, path: '/settings' },
   ];
 
@@ -85,9 +88,10 @@ function MainLayout() {
         </Typography>
       </Box>
       
-      <Box sx={{ flex: 1, py: 2 }}>
+      {/* Main Navigation */}
+      <Box sx={{ flex: 1, py: 2, display: 'flex', flexDirection: 'column' }}>
         <List sx={{ px: 1 }}>
-          {menuItems.map((item) => (
+          {mainMenuItems.map((item) => (
             <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
               <ListItemButton
                 onClick={() => handleNavigation(item.path)}
@@ -136,6 +140,60 @@ function MainLayout() {
             </ListItem>
           ))}
         </List>
+        
+        {/* Bottom Navigation - pushed to bottom */}
+        <Box sx={{ mt: 'auto', borderTop: '1px solid #e5e7eb', pt: 2 }}>
+          <List sx={{ px: 1 }}>
+            {bottomMenuItems.map((item) => (
+              <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
+                <ListItemButton
+                  onClick={() => handleNavigation(item.path)}
+                  selected={isActive(item.path)}
+                  sx={{
+                    borderRadius: '12px',
+                    py: 1.5,
+                    px: 2,
+                    transition: 'all 0.2s ease-in-out',
+                    '&.Mui-selected': {
+                      backgroundColor: 'rgba(30, 64, 175, 0.1)',
+                      color: theme.palette.primary.main,
+                      fontWeight: 600,
+                      '&:hover': {
+                        backgroundColor: 'rgba(30, 64, 175, 0.15)',
+                      },
+                      '& .MuiListItemIcon-root': {
+                        color: theme.palette.primary.main,
+                      },
+                      '& .MuiListItemText-primary': {
+                        fontWeight: 600,
+                      },
+                    },
+                    '&:hover': {
+                      backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                      transform: 'translateX(4px)',
+                    },
+                  }}
+                >
+                  <ListItemIcon 
+                    sx={{ 
+                      minWidth: 40,
+                      color: isActive(item.path) ? theme.palette.primary.main : theme.palette.text.secondary
+                    }}
+                  >
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary={item.text}
+                    primaryTypographyProps={{
+                      fontSize: '0.875rem',
+                      fontWeight: isActive(item.path) ? 600 : 500,
+                    }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        </Box>
       </Box>
       
       <Box sx={{ p: 2, borderTop: '1px solid #e5e7eb' }}>
