@@ -51,6 +51,7 @@ function ItemListPage() {
   const [itemDescription, setItemDescription] = useState('');
   const [itemType, setItemType] = useState('');
   const [orderNeeded, setOrderNeeded] = useState(false);
+  const [autoBatch, setAutoBatch] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [sortBy, setSortBy] = useState('created_at'); // New state for sorting
@@ -117,6 +118,7 @@ function ItemListPage() {
     setItemDescription('');
     setItemType('');
     setOrderNeeded(false);
+    setAutoBatch(false);
     setOpenDialog(true);
   };
 
@@ -126,6 +128,7 @@ function ItemListPage() {
     setItemDescription(item.description || '');
     setItemType(item.item_type || '');
     setOrderNeeded(item.order_needed || false);
+    setAutoBatch(item.auto_batch || false);
     setOpenDialog(true);
   };
 
@@ -144,6 +147,7 @@ function ItemListPage() {
             description: itemDescription.trim(),
             item_type: itemType.trim(),
             order_needed: orderNeeded,
+            auto_batch: autoBatch,
             updated_at: new Date().toISOString()
           })
           .eq('id', editingItem.id);
@@ -159,7 +163,8 @@ function ItemListPage() {
               name: itemName.trim(),
               description: itemDescription.trim(),
               item_type: itemType.trim(),
-              order_needed: orderNeeded
+              order_needed: orderNeeded,
+              auto_batch: autoBatch
             }
           ]);
         
@@ -172,6 +177,7 @@ function ItemListPage() {
       setItemDescription('');
       setItemType('');
       setOrderNeeded(false);
+      setAutoBatch(false);
       setEditingItem(null);
       fetchItems(); // Refresh the list
       
@@ -339,6 +345,7 @@ function ItemListPage() {
                   <TableCell sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Item Name</TableCell>
                   <TableCell sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Type</TableCell>
                   <TableCell sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Order Needed</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Auto Batch</TableCell>
                   <TableCell sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Description</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 700, fontSize: '1rem', py: 2 }}>Actions</TableCell>
                 </TableRow>
@@ -382,6 +389,17 @@ function ItemListPage() {
                         }}
                       >
                         {item.order_needed ? 'Yes' : 'No'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ py: 2 }}>
+                      <Typography 
+                        variant="body2" 
+                        sx={{ 
+                          fontWeight: 500,
+                          color: item.auto_batch ? 'info.main' : 'text.secondary'
+                        }}
+                      >
+                        {item.auto_batch ? 'Yes' : 'No'}
                       </Typography>
                     </TableCell>
                     <TableCell sx={{ py: 2, maxWidth: 300 }}>
@@ -508,6 +526,17 @@ function ItemListPage() {
               />
             }
             label="Order Needed"
+            sx={{ mb: 3, display: 'flex', justifyContent: 'space-between' }}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={autoBatch}
+                onChange={(e) => setAutoBatch(e.target.checked)}
+                color="primary"
+              />
+            }
+            label="Auto Batch"
             sx={{ mb: 3, display: 'flex', justifyContent: 'space-between' }}
           />
           <TextField

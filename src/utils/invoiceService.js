@@ -197,29 +197,48 @@ export const saveInvoice = async (invoiceData) => {
 
     // Save order items as individual units
     if (invoiceData.items && invoiceData.items.length > 0) {
+      // Fetch items data to check auto_batch settings
+      const { data: dbItems, error: itemsFetchError } = await supabase
+        .from('items')
+        .select('name, auto_batch');
+      
+      if (itemsFetchError) {
+        console.warn('Failed to fetch items for auto-batch check:', itemsFetchError.message);
+      }
+
       // Expand items by quantity to create individual unit records
       const expandedItems = expandItemsByQuantity(invoiceData.items);
       
-      const orderItems = expandedItems.map(item => ({
-        invoice_id: invoice.id,
-        item_name: item.name,
-        quantity: 1, // Each record represents one unit
-        unit_index: item.unit_index,
-        parent_item_id: item.parent_item_id,
-        width: item.width,
-        height: item.height,
-        additional_dimension: item.additionalDimension,
-        color: item.color,
-        frame: item.frame,
-        glass_option: item.glassOption,
-        grid_style: item.gridStyle,
-        argon: item.argon,
-        batch_assigned: '', // Empty initially, will be assigned later
-        is_unknown_item: item.isUnknownItem || false,
-        is_unknown_color: item.isUnknownColor || false,
-        is_unknown_frame: item.isUnknownFrame || false,
-        requires_special_order: item.requiresSpecialOrder || false
-      }));
+      const orderItems = expandedItems.map(item => {
+        // Find matching database item (case-insensitive)
+        const dbItem = dbItems?.find(dbItem => 
+          dbItem.name.toLowerCase() === (item.name || '').toLowerCase()
+        );
+        
+        // Set batch_assigned based on auto_batch setting
+        const batchAssigned = (dbItem && dbItem.auto_batch) ? dbItem.name : '';
+        
+        return {
+          invoice_id: invoice.id,
+          item_name: item.name,
+          quantity: 1, // Each record represents one unit
+          unit_index: item.unit_index,
+          parent_item_id: item.parent_item_id,
+          width: item.width,
+          height: item.height,
+          additional_dimension: item.additionalDimension,
+          color: item.color,
+          frame: item.frame,
+          glass_option: item.glassOption,
+          grid_style: item.gridStyle,
+          argon: item.argon,
+          batch_assigned: batchAssigned, // Auto-assign if auto_batch is true
+          is_unknown_item: item.isUnknownItem || false,
+          is_unknown_color: item.isUnknownColor || false,
+          is_unknown_frame: item.isUnknownFrame || false,
+          requires_special_order: item.requiresSpecialOrder || false
+        };
+      });
 
       const { error: itemsError } = await supabase
         .from('order_items')
