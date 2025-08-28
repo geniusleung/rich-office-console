@@ -45,6 +45,8 @@ function ProductionCalendarPage() {
   const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth());
   const [invoiceData, setInvoiceData] = useState({});
   const [wdgsData, setWdgsData] = useState({}); // Add new state for WDGS totals
+  const [deliveryData, setDeliveryData] = useState({}); // Add new state for delivery method data
+  const [specialData, setSpecialData] = useState({}); // Add new state for special order and batch data
   const [loading, setLoading] = useState(true);
   
   // Dialog states
@@ -373,21 +375,153 @@ function ProductionCalendarPage() {
     }
   };
 
+  // Add function to get delivery method filtered data by due date
+  const getDeliveryMethodDataByDueDate = async (year, month) => {
+    try {
+      // Create start and end dates for the month
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0); // Last day of the month
+      
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('due_date, delivery_method, wdgsp_string')
+        .gte('due_date', startDateStr)
+        .lte('due_date', endDateStr)
+        .not('due_date', 'is', null)
+        .not('delivery_method', 'is', null);
+
+      if (error) {
+        console.error('Error fetching delivery method data by due date:', error);
+        throw error;
+      }
+
+      // Group and sum delivery method data by due date
+      const groupedDeliveryData = {};
+      data.forEach(invoice => {
+        const dueDate = invoice.due_date;
+        if (dueDate && invoice.delivery_method) {
+          // Check if delivery method contains "delivery" (case insensitive)
+          const isDeliveryMethod = invoice.delivery_method.toLowerCase().includes('delivery');
+          
+          if (isDeliveryMethod) {
+            if (!groupedDeliveryData[dueDate]) {
+              groupedDeliveryData[dueDate] = { count: 0, W: 0, D: 0, G: 0, S: 0, P: 0, total: 0 };
+            }
+            
+            groupedDeliveryData[dueDate].count += 1;
+            
+            if (invoice.wdgsp_string) {
+              const parsed = parseWdgsString(invoice.wdgsp_string);
+              groupedDeliveryData[dueDate].W += parsed.W;
+              groupedDeliveryData[dueDate].D += parsed.D;
+              groupedDeliveryData[dueDate].G += parsed.G;
+              groupedDeliveryData[dueDate].S += parsed.S;
+              groupedDeliveryData[dueDate].P += parsed.P;
+              groupedDeliveryData[dueDate].total += parsed.total;
+            }
+          }
+        }
+      });
+
+      return groupedDeliveryData;
+    } catch (error) {
+      console.error('Error in getDeliveryMethodDataByDueDate:', error);
+      throw error;
+    }
+  };
+
+  // Add function to get special order and unassigned batch data by due date
+  const getSpecialOrderAndBatchDataByDueDate = async (year, month) => {
+    try {
+      // Create start and end dates for the month
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0); // Last day of the month
+      
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      const { data, error } = await supabase
+        .from('invoices')
+        .select(`
+          due_date,
+          delivery_method,
+          order_items (
+            id,
+            item_name,
+            quantity,
+            glass_option,
+            batch_assigned
+          )
+        `)
+        .gte('due_date', startDateStr)
+        .lte('due_date', endDateStr)
+        .not('due_date', 'is', null);
+
+      if (error) {
+        console.error('Error fetching special order and batch data:', error);
+        throw error;
+      }
+
+      // Group and calculate special order and unassigned batch data by due date
+      const groupedSpecialData = {};
+      
+      data.forEach(invoice => {
+        const dueDate = invoice.due_date;
+        if (dueDate && invoice.order_items) {
+          if (!groupedSpecialData[dueDate]) {
+            groupedSpecialData[dueDate] = { specialOrderQty: 0, unassignedBatchQty: 0 };
+          }
+          
+          // Use the existing categorizeItems function to identify special orders
+          const { processedItems } = categorizeItems(invoice.order_items, invoice.delivery_method || '');
+          
+          processedItems.forEach(item => {
+            const quantity = parseInt(item.quantity) || 1;
+            
+            // Count special order quantities
+            if (item.requiresSpecialOrder) {
+              groupedSpecialData[dueDate].specialOrderQty += quantity;
+            }
+            
+            // Count unassigned batch quantities
+            if (!item.batch_assigned || item.batch_assigned === 'N/A' || item.batch_assigned.trim() === '') {
+              groupedSpecialData[dueDate].unassignedBatchQty += quantity;
+            }
+          });
+        }
+      });
+
+      return groupedSpecialData;
+    } catch (error) {
+      console.error('Error in getSpecialOrderAndBatchDataByDueDate:', error);
+      throw error;
+    }
+  };
+
   // Fetch invoice data when month or year changes
   useEffect(() => {
     const fetchInvoiceData = async () => {
       setLoading(true);
       try {
-        const [invoiceCountData, wdgsData] = await Promise.all([
+        const [invoiceCountData, wdgsData, deliveryMethodData, specialOrderData] = await Promise.all([
           getInvoicesByDueDate(selectedYear, selectedMonth + 1),
-          getWdgsTotalsByDueDate(selectedYear, selectedMonth + 1)
+          getWdgsTotalsByDueDate(selectedYear, selectedMonth + 1),
+          getDeliveryMethodDataByDueDate(selectedYear, selectedMonth + 1),
+          getSpecialOrderAndBatchDataByDueDate(selectedYear, selectedMonth + 1)
         ]);
         setInvoiceData(invoiceCountData);
         setWdgsData(wdgsData);
+        setDeliveryData(deliveryMethodData);
+        setSpecialData(specialOrderData);
       } catch (error) {
         console.error('Error fetching invoice data:', error);
         setInvoiceData({});
         setWdgsData({});
+        setDeliveryData({});
+        setSpecialData({});
       } finally {
         setLoading(false);
       }
@@ -412,6 +546,18 @@ function ProductionCalendarPage() {
   const getWdgsTotals = (date) => {
     const dateStr = date.toISOString().split('T')[0];
     return wdgsData[dateStr] || { W: 0, D: 0, G: 0, S: 0, P: 0, total: 0 };
+  };
+
+  // Add helper function to get delivery method data for a specific date
+  const getDeliveryData = (date) => {
+    const dateStr = date.toISOString().split('T')[0];
+    return deliveryData[dateStr] || { count: 0, W: 0, D: 0, G: 0, S: 0, P: 0, total: 0 };
+  };
+
+  // Add helper function to get special order and batch data for a specific date
+  const getSpecialData = (date) => {
+    const dateStr = date.toISOString().split('T')[0];
+    return specialData[dateStr] || { specialOrderQty: 0, unassignedBatchQty: 0 };
   };
 
   // Handle date click
@@ -597,12 +743,16 @@ function ProductionCalendarPage() {
       }
       
       // Refresh both invoice count and WDGS data
-      const [invoiceCountData, wdgsDataResult] = await Promise.all([
+      const [invoiceCountData, wdgsDataResult, deliveryMethodData, specialOrderData] = await Promise.all([
         getInvoicesByDueDate(selectedYear, selectedMonth + 1),
-        getWdgsTotalsByDueDate(selectedYear, selectedMonth + 1)
+        getWdgsTotalsByDueDate(selectedYear, selectedMonth + 1),
+        getDeliveryMethodDataByDueDate(selectedYear, selectedMonth + 1),
+        getSpecialOrderAndBatchDataByDueDate(selectedYear, selectedMonth + 1)
       ]);
       setInvoiceData(invoiceCountData);
       setWdgsData(wdgsDataResult);
+      setDeliveryData(deliveryMethodData);
+      setSpecialData(specialOrderData);
       
       // Refresh the date dialog data if it's open
       if (dialogOpen && selectedDate) {
@@ -745,6 +895,19 @@ function ProductionCalendarPage() {
                 {week.map((date, dayIndex) => {
                   const invoiceCount = getInvoiceCount(date);
                   const wdgsTotals = getWdgsTotals(date);
+                  const deliveryMethodData = getDeliveryData(date);
+                  const specialOrderData = getSpecialData(date);
+                  
+                  // Add debugging for dates with invoices
+                  if (invoiceCount > 0 && isCurrentMonth(date)) {
+                    console.log(`Date: ${date.toISOString().split('T')[0]}`);
+                    console.log('Invoice Count:', invoiceCount);
+                    console.log('WDGS Totals:', wdgsTotals);
+                    console.log('Delivery Method Data:', deliveryMethodData);
+                    console.log('Special Order Data:', specialOrderData);
+                    console.log('---');
+                  }
+                  
                   return (
                     <Box
                       key={dayIndex}
@@ -783,49 +946,48 @@ function ProductionCalendarPage() {
                       </Typography>
                       
                       {invoiceCount > 0 && isCurrentMonth(date) && (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'flex-end' }}>
-                          <Chip
-                            label={invoiceCount}
-                            size="small"
-                            color="primary"
-                            sx={{ fontSize: '0.75rem', height: 20 }}
-                          />
-                          {(wdgsTotals.W > 0 || wdgsTotals.D > 0 || wdgsTotals.G > 0 || wdgsTotals.S > 0) && (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, alignItems: 'flex-end' }}>
-                              {wdgsTotals.W > 0 && (
-                                <Chip
-                                  label={`W: ${wdgsTotals.W}`}
-                                  size="small"
-                                  color="info"
-                                  sx={{ fontSize: '0.6rem', height: 16 }}
-                                />
-                              )}
-                              {wdgsTotals.D > 0 && (
-                                <Chip
-                                  label={`D: ${wdgsTotals.D}`}
-                                  size="small"
-                                  color="warning"
-                                  sx={{ fontSize: '0.6rem', height: 16 }}
-                                />
-                              )}
-                              {wdgsTotals.G > 0 && (
-                                <Chip
-                                  label={`G: ${wdgsTotals.G}`}
-                                  size="small"
-                                  color="success"
-                                  sx={{ fontSize: '0.6rem', height: 16 }}
-                                />
-                              )}
-                              {wdgsTotals.S > 0 && (
-                                <Chip
-                                  label={`S: ${wdgsTotals.S}`}
-                                  size="small"
-                                  color="secondary"
-                                  sx={{ fontSize: '0.6rem', height: 16 }}
-                                />
-                              )}
-                            </Box>
-                          )}
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0, alignItems: 'center', flex: 1, justifyContent: 'center', textAlign: 'center' }}>
+                          {/* Row 1: Total invoices and W/D */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, height: '33%', justifyContent: 'center', width: '100%' }}>
+                            <Typography variant="caption" sx={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'primary.main' }}>
+                              Total {invoiceCount}
+                            </Typography>
+                            {(wdgsTotals.W > 0 || wdgsTotals.D > 0) && (
+                              <Typography variant="caption" sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
+                                | {wdgsTotals.W}W {wdgsTotals.D}D
+                              </Typography>
+                            )}
+                          </Box>
+                          
+                          {/* Row 2: Delivery method invoices and W/D */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, height: '33%', justifyContent: 'center', width: '100%' }}>
+                            {deliveryMethodData.count > 0 ? (
+                              <>
+                                <Typography variant="caption" sx={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'success.main' }}>
+                                  Delivery {deliveryMethodData.count}
+                                </Typography>
+                                {(deliveryMethodData.W > 0 || deliveryMethodData.D > 0) && (
+                                  <Typography variant="caption" sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
+                                    | {deliveryMethodData.W}W {deliveryMethodData.D}D
+                                  </Typography>
+                                )}
+                              </>
+                            ) : (
+                              <Typography variant="caption" sx={{ fontSize: '0.85rem', color: 'text.disabled' }}>
+                                Delivery 0
+                              </Typography>
+                            )}
+                          </Box>
+                          
+                          {/* Row 3: Special order and unassigned batch quantities */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, height: '33%', justifyContent: 'center', width: '100%' }}>
+                            <Typography variant="caption" sx={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'warning.main' }}>
+                              Special {specialOrderData.specialOrderQty || 0}
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'error.main' }}>
+                              | Unassigned {specialOrderData.unassignedBatchQty || 0}
+                            </Typography>
+                          </Box>
                         </Box>
                       )}
                     </Box>
