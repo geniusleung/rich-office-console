@@ -48,7 +48,9 @@ import {
   saveInvoice, 
   expandItemsByQuantity, 
   collapseUnitRecords,
-  checkExistingOrderNumbers
+  checkExistingOrderNumbers,
+  parseExcelDate,
+  formatDateForDB
 } from '../utils/invoiceService';
 
 // Add pulse animation styles
@@ -569,7 +571,7 @@ function InvoiceProcessorPage() {
             if (!invoiceGroups[invoiceNum]) {
               invoiceGroups[invoiceNum] = {
                 type: columnMap.type >= 0 ? (row[columnMap.type] || '').toString() : '',
-                orderDate: columnMap.date >= 0 ? (row[columnMap.date] || '').toString() : '',
+                orderDate: columnMap.date >= 0 ? parseExcelDate(row[columnMap.date]) : '',
                 orderNo: invoiceNum.toString(),
                 poNumber: columnMap.poNumber >= 0 ? (row[columnMap.poNumber] || '').toString() : '',
                 customerInfo: {
@@ -577,8 +579,8 @@ function InvoiceProcessorPage() {
                   phone: '',
                   address: ''
                 },
-                dueDate: columnMap.dueDate >= 0 ? (row[columnMap.dueDate] || '').toString() : '',
-                deliveryDate: columnMap.dueDate >= 0 ? (row[columnMap.dueDate] || '').toString() : '',
+                dueDate: columnMap.dueDate >= 0 ? parseExcelDate(row[columnMap.dueDate]) : '',
+                deliveryDate: columnMap.dueDate >= 0 ? parseExcelDate(row[columnMap.dueDate]) : '',
                 deliveryMethod: columnMap.via >= 0 ? (row[columnMap.via] || '').toString() : '',
                 paidStatus: columnMap.paid >= 0 ? (row[columnMap.paid] || '').toString() : '',
                 shippingAddress: '',

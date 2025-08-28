@@ -1,6 +1,73 @@
 import { supabase } from './supabaseClient';
 
 /**
+ * Date utility functions for consistent date handling
+ */
+
+/**
+ * Parse Excel date value and return YYYY-MM-DD format
+ * @param {any} dateValue - Excel date value (can be Date object, string, or number)
+ * @returns {string} - Date in YYYY-MM-DD format or empty string if invalid
+ */
+export const parseExcelDate = (dateValue) => {
+  if (!dateValue) return '';
+  
+  let date;
+  
+  // Handle Excel date serial number (days since 1900-01-01)
+  if (typeof dateValue === 'number') {
+    // Excel date serial number
+    const excelEpoch = new Date(1900, 0, 1);
+    date = new Date(excelEpoch.getTime() + (dateValue - 1) * 24 * 60 * 60 * 1000);
+  } else if (dateValue instanceof Date) {
+    // Already a Date object
+    date = dateValue;
+  } else if (typeof dateValue === 'string') {
+    // Try to parse string date
+    date = new Date(dateValue);
+  } else {
+    return '';
+  }
+  
+  // Validate the date
+  if (isNaN(date.getTime())) {
+    return '';
+  }
+  
+  // Format as YYYY-MM-DD (local date, no timezone conversion)
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}`;
+};
+
+/**
+ * Format date consistently for database storage
+ * @param {string} dateString - Date string in various formats
+ * @returns {string} - Date in YYYY-MM-DD format
+ */
+export const formatDateForDB = (dateString) => {
+  if (!dateString || dateString.trim() === '') return '';
+  
+  // If it's already in YYYY-MM-DD format, return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString.trim())) {
+    return dateString.trim();
+  }
+  
+  // For other formats, parse carefully to avoid timezone issues
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '';
+  
+  // Use UTC methods to avoid timezone conversion
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}`;
+};
+
+/**
  * Invoice Database Service
  * Handles all database operations for invoice processing
  */
@@ -91,9 +158,9 @@ export const saveInvoice = async (invoiceData) => {
     const invoiceRecord = {
       order_no: invoiceData.orderNo,
       po_number: invoiceData.poNumber,
-      order_date: invoiceData.orderDate,
-      due_date: invoiceData.dueDate,
-      delivery_date: invoiceData.deliveryDate,
+      order_date: formatDateForDB(invoiceData.orderDate),
+      due_date: formatDateForDB(invoiceData.dueDate),
+      delivery_date: formatDateForDB(invoiceData.deliveryDate),
       delivery_method: invoiceData.deliveryMethod,
       paid_status: invoiceData.paidStatus,
       shipping_address: invoiceData.shippingAddress,

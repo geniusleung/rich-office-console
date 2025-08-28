@@ -36,6 +36,17 @@ const InvoiceDetailDialog = ({
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
+      // Handle YYYY-MM-DD format to avoid timezone issues
+      if (typeof dateString === 'string' && dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const [year, month, day] = dateString.split('-');
+        const date = new Date(year, month - 1, day);
+        return date.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        });
+      }
+      // For other date formats
       const date = new Date(dateString);
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
