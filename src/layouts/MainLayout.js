@@ -21,7 +21,8 @@ import {
   Settings,
   CalendarToday,
   LocalShipping,
-  Menu as MenuIcon
+  Menu as MenuIcon,
+  Transform
 } from '@mui/icons-material';
 import { useNavigate, Outlet, useLocation } from 'react-router-dom';
 import packageJson from '../../package.json';
@@ -55,6 +56,7 @@ function MainLayout() {
     { text: 'Invoice Processor', icon: <Receipt />, path: '/invoice-processor' },
     { text: 'Production Plan Calendar', icon: <CalendarToday />, path: '/production-calendar' },
     { text: 'Delivery Calendar', icon: <LocalShipping />, path: '/delivery-calendar' },
+    { text: 'Data Converter', icon: <Transform />, path: '/data-converter' },
   ];
 
   const bottomMenuItems = [

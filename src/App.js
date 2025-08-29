@@ -13,6 +13,7 @@ import GlassOptionsPage from './pages/GlassOptionsPage';
 import DeliveryMethodsPage from './pages/DeliveryMethodsPage';
 import ProductionCalendarPage from './pages/ProductionCalendarPage';
 import DeliveryCalendarPage from './pages/DeliveryCalendarPage';
+import DataConverterPage from './pages/DataConverterPage';
 
 const theme = createTheme({
   palette: {
@@ -270,6 +271,7 @@ function App() {
             <Route path="processed-invoice" element={<ProcessedInvoicePage />} />
             <Route path="production-calendar" element={<ProductionCalendarPage />} />
             <Route path="delivery-calendar" element={<DeliveryCalendarPage />} />
+            <Route path="data-converter" element={<DataConverterPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="item-list" element={<ItemListPage />} />
             <Route path="item-colors" element={<ItemColorPage />} />
