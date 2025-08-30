@@ -569,22 +569,11 @@ function ProductionCalendarPage() {
       setDialogLoading(true);
       
       try {
-        const dateStr = date.toISOString().split('T')[0];
-        
-        // Use the same getInvoices function as ProcessedInvoicePage
-        const result = await getInvoices({
-          limit: 100, // Get more records to ensure we get all for the date
-          offset: 0
-        });
+        // Use getInvoicesForDate instead of getInvoices to get ALL invoices for the specific date
+        const result = await getInvoicesForDate(date);
         
         if (result.success) {
-          // Filter invoices by due_date on the client side
-          const filteredInvoices = result.data.filter(invoice => {
-            const invoiceDueDate = invoice.due_date ? invoice.due_date.split('T')[0] : null;
-            return invoiceDueDate === dateStr;
-          });
-          
-          setDateInvoices(filteredInvoices);
+          setDateInvoices(result.data);
         } else {
           console.error('Failed to fetch invoices:', result.message);
           setDateInvoices([]);
