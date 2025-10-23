@@ -58,15 +58,46 @@ function DataConverterPage() {
       return { allAssigned: false, assignedCount: 0, totalCount: 0 };
     }
     
-    const assignedCount = orderItems.filter(item => 
-      item.batch_assigned && item.batch_assigned !== 'N/A' && item.batch_assigned.trim() !== ''
-    ).length;
+    const assignedCount = orderItems.filter(item => {
+      // More robust checking for assigned items
+      if (!item.batch_assigned) {
+        return false; // null, undefined, or empty string
+      }
+      if (item.batch_assigned === 'N/A') {
+        return false; // Explicitly marked as N/A
+      }
+      if (typeof item.batch_assigned === 'string' && item.batch_assigned.trim() === '') {
+        return false; // Empty string or whitespace only
+      }
+      return true; // Has a valid batch assignment
+    }).length;
     
-    return {
+    const result = {
       allAssigned: assignedCount === orderItems.length,
       assignedCount,
       totalCount: orderItems.length
     };
+    
+    // Debug logging for the specific invoice we're investigating
+    const hasTargetInvoice = orderItems.some(item => 
+      item.invoice_id === 'd02b57f5-f71e-4bbb-85ea-43f364cc82ce'
+    );
+    if (hasTargetInvoice) {
+      console.log('Debug - Target invoice batch status:', {
+        invoiceId: 'd02b57f5-f71e-4bbb-85ea-43f364cc82ce',
+        totalItems: orderItems.length,
+        assignedItems: assignedCount,
+        allAssigned: result.allAssigned,
+        shouldShowInDataConverter: !result.allAssigned,
+        orderItems: orderItems.map(item => ({
+          id: item.id,
+          batch_assigned: item.batch_assigned,
+          batch_assigned_type: typeof item.batch_assigned
+        }))
+      });
+    }
+    
+    return result;
   };
 
   // Helper function to format dates
@@ -143,6 +174,8 @@ function DataConverterPage() {
     setError(null);
     
     try {
+      console.log('🔍 DataConverter: Starting to fetch invoices...');
+      
       const { data, error } = await supabase
         .from('invoices')
         .select(`
@@ -154,26 +187,71 @@ function DataConverterPage() {
           total_quantity,
           order_items (
             id,
-            batch_assigned
+            batch_assigned,
+            invoice_id
           )
         `)
-        .order('due_date', { ascending: true })
-        .order('order_no', { ascending: true });
+        .order('due_date', { ascending: false }) // Most recent due dates first
+        .order('order_no', { ascending: false }) // Most recent order numbers first
+        .limit(5000); // Increase limit to fetch more invoices
 
       if (error) {
         throw new Error(`Failed to fetch invoices: ${error.message}`);
       }
 
+      console.log('📊 DataConverter: Raw data from Supabase:', {
+        totalInvoices: data?.length || 0,
+        sampleInvoice: data?.[0] ? {
+          id: data[0].id,
+          order_no: data[0].order_no,
+          orderItemsCount: data[0].order_items?.length || 0
+        } : null
+      });
+
+      // Check if target invoice is in the raw data
+      const targetInvoice = data?.find(inv => inv.id === 'd02b57f5-f71e-4bbb-85ea-43f364cc82ce');
+      console.log('🎯 DataConverter: Target invoice in raw data:', {
+        found: !!targetInvoice,
+        invoice: targetInvoice ? {
+          id: targetInvoice.id,
+          order_no: targetInvoice.order_no,
+          orderItems: targetInvoice.order_items?.map(item => ({
+            id: item.id,
+            batch_assigned: item.batch_assigned,
+            batch_assigned_type: typeof item.batch_assigned
+          }))
+        } : null
+      });
+
       // Filter invoices to show only "None Batched" or "Partial Batched"
       const filteredInvoices = (data || []).filter(invoice => {
         const batchStatus = getBatchAssignmentStatus(invoice.order_items);
-        return !batchStatus.allAssigned; // Show only non-complete batches
+        const shouldShow = !batchStatus.allAssigned;
+        
+        // Log filtering decision for each invoice
+        if (invoice.id === 'd02b57f5-f71e-4bbb-85ea-43f364cc82ce') {
+          console.log('🔍 DataConverter: Target invoice filtering decision:', {
+            invoiceId: invoice.id,
+            order_no: invoice.order_no,
+            batchStatus,
+            shouldShow,
+            orderItemsCount: invoice.order_items?.length || 0
+          });
+        }
+        
+        return shouldShow;
+      });
+
+      console.log('✅ DataConverter: Filtered results:', {
+        totalFiltered: filteredInvoices.length,
+        targetInvoiceIncluded: filteredInvoices.some(inv => inv.id === 'd02b57f5-f71e-4bbb-85ea-43f364cc82ce'),
+        filteredInvoiceIds: filteredInvoices.map(inv => ({ id: inv.id, order_no: inv.order_no }))
       });
 
       setInvoices(filteredInvoices);
     } catch (err) {
       setError(err.message);
-      console.error('Error fetching invoices:', err);
+      console.error('❌ DataConverter: Error fetching invoices:', err);
     } finally {
       setLoading(false);
     }
