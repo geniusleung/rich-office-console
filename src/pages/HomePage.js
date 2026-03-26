@@ -7,13 +7,11 @@ import {
   CardContent, 
   useTheme,
   Chip,
-  Avatar,
-  Divider
+  Avatar
 } from '@mui/material';
 import { 
   AccessTime, 
   CalendarToday, 
-  TrendingUp, 
   Assignment, 
   Receipt,
   LocalShipping,

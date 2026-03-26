@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Typography,
@@ -17,34 +17,14 @@ import {
   Tooltip,
   CircularProgress,
   Alert,
-  Grid,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Card,
-  CardContent,
-  Divider,
-  Autocomplete,
-  MenuItem,
-  Select,
-  FormControl,
-  InputLabel,
-  Switch,
-  FormControlLabel
+  Grid
 } from '@mui/material';
 import {
   Visibility as VisibilityIcon,
   Delete as DeleteIcon,
   Refresh as RefreshIcon,
   ArrowUpward as ArrowUpwardIcon,
-  ArrowDownward as ArrowDownwardIcon,
-  Edit as EditIcon,
-  Close as CloseIcon,
-  Add as AddIcon,
-  Remove as RemoveIcon,
-  Warning
+  ArrowDownward as ArrowDownwardIcon
 } from '@mui/icons-material';
 // Remove collapseUnitRecords import
 import { getInvoices, getInvoiceById, deleteInvoice, updateInvoice, updateOrderItems } from '../utils/invoiceService';
@@ -264,43 +244,6 @@ function ProcessedInvoicePage() {
       processedItems
     };
   }, [items, colors, frameStyles, glassOptions, deliveryMethods]);
-
-  // Add these memoized options
-  const itemOptions = useMemo(() => 
-    [...new Set(items.map(dbItem => dbItem.name))].filter(name => name && name.trim()),
-    [items]
-  );
-
-  const colorOptions = useMemo(() => 
-    [...new Set(colors.map(color => color.color_name))].filter(name => name && name.trim()),
-    [colors]
-  );
-
-  const frameOptions = useMemo(() => 
-    [...new Set(frameStyles.map(frame => frame.style_name))].filter(name => name && name.trim()),
-    [frameStyles]
-  );
-
-  const getColorValidation = useCallback((colorName) => {
-    if (!colors || colors.length === 0 || !colorName) return null;
-    return colors.find(color => 
-      color.color_name && color.color_name.toLowerCase() === colorName.toLowerCase()
-    );
-  }, [colors]);
-
-  const getItemValidation = useCallback((itemName) => {
-    if (!items || items.length === 0 || !itemName) return null;
-    return items.find(dbItem => 
-      dbItem.name && dbItem.name.toLowerCase() === (itemName || '').toLowerCase()
-    );
-  }, [items]);
-
-  const getFrameValidation = useCallback((frameName) => {
-    if (!frameStyles || frameStyles.length === 0 || !frameName) return null;
-    return frameStyles.find(frame => 
-      frame.style_name && frame.style_name.toLowerCase() === frameName.toLowerCase()
-    );
-  }, [frameStyles]);
 
   // Handle column sorting
   const handleSort = (column) => {

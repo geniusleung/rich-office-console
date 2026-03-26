@@ -3,7 +3,6 @@ import {
   Container,
   Typography,
   Box,
-  Grid,
   Paper,
   IconButton,
   Select,
@@ -17,7 +16,7 @@ import {
 } from '@mui/icons-material';
 
 function DeliveryCalendarPage() {
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate] = useState(new Date());
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth());
 
@@ -32,12 +31,10 @@ function DeliveryCalendarPage() {
 
   // Generate years for dropdown (current year ± 10 years)
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i);
 
   // Get calendar data for the selected month
   const getCalendarData = () => {
     const firstDay = new Date(selectedYear, selectedMonth, 1);
-    const lastDay = new Date(selectedYear, selectedMonth + 1, 0);
     const startDate = new Date(firstDay);
     
     // Adjust to start from Sunday

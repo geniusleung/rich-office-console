@@ -3,7 +3,6 @@ import {
   Container,
   Typography,
   Box,
-  Grid,
   Paper,
   IconButton,
   Select,
@@ -23,8 +22,6 @@ import {
   TableHead,
   TableRow,
   CircularProgress,
-  Card,
-  CardContent,
   Tooltip
 } from '@mui/material';
 import {
@@ -40,7 +37,7 @@ import InvoiceDetailDialog from '../components/InvoiceDetailDialog';
 import InvoiceEditDialog from '../components/InvoiceEditDialog';
 
 function ProductionCalendarPage() {
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate] = useState(new Date());
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth());
   const [invoiceData, setInvoiceData] = useState({});
@@ -528,7 +525,7 @@ function ProductionCalendarPage() {
     };
 
     fetchInvoiceData();
-  }, [selectedYear, selectedMonth]);
+  }, [selectedYear, selectedMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch data on component mount
   useEffect(() => {
@@ -596,7 +593,6 @@ function ProductionCalendarPage() {
   // Get calendar data for the selected month
   const getCalendarData = () => {
     const firstDay = new Date(selectedYear, selectedMonth, 1);
-    const lastDay = new Date(selectedYear, selectedMonth + 1, 0);
     const startDate = new Date(firstDay);
     
     // Adjust to start from Sunday
@@ -616,32 +612,6 @@ function ProductionCalendarPage() {
     }
     
     return calendar;
-  };
-
-  const handlePreviousMonth = () => {
-    if (selectedMonth === 0) {
-      setSelectedMonth(11);
-      setSelectedYear(selectedYear - 1);
-    } else {
-      setSelectedMonth(selectedMonth - 1);
-    }
-  };
-
-  const handleNextMonth = () => {
-    if (selectedMonth === 11) {
-      setSelectedMonth(0);
-      setSelectedYear(selectedYear + 1);
-    } else {
-      setSelectedMonth(selectedMonth + 1);
-    }
-  };
-
-  const handleYearChange = (event) => {
-    setSelectedYear(event.target.value);
-  };
-
-  const handleMonthChange = (event) => {
-    setSelectedMonth(event.target.value);
   };
 
   const isCurrentMonth = (date) => {

@@ -18,7 +18,6 @@ import {
   Checkbox,
   CircularProgress,
   Alert,
-  FormControlLabel,
   Chip,
   TextField,
   Snackbar
@@ -382,7 +381,7 @@ function DataConverterPage() {
       XLSX.writeFile(wb, finalFilename);
       
       // Show success message
-      setSuccessMessage(`File \"${finalFilename}\" has been downloaded successfully!`);
+      setSuccessMessage(`File "${finalFilename}" has been downloaded successfully!`);
       setSnackbarOpen(true);
       
       // Close dialogs

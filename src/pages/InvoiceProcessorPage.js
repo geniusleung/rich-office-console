@@ -46,11 +46,8 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../utils/supabaseClient';
 import { 
   saveInvoice, 
-  expandItemsByQuantity, 
-  collapseUnitRecords,
   checkExistingOrderNumbers,
-  parseExcelDate,
-  formatDateForDB
+  parseExcelDate
 } from '../utils/invoiceService';
 
 // Add pulse animation styles
@@ -202,11 +199,6 @@ function InvoiceProcessorPage() {
   const frameOptions = useMemo(() => 
     frameStyles.map(frame => frame.style_name).filter(name => name && name.trim()),
     [frameStyles]
-  );
-
-  const deliveryOptions = useMemo(() => 
-    deliveryMethods.map(method => method.name).filter(name => name && name.trim()),
-    [deliveryMethods]
   );
 
   // Optimized change handlers for edit dialog
